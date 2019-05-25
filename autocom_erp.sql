@@ -5,7 +5,7 @@
 -- Dumped from database version 10.2
 -- Dumped by pg_dump version 11.2
 
--- Started on 2019-05-09 21:19:53
+-- Started on 2019-05-25 23:11:06
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -378,6 +378,7 @@ declare
   status_value bigint;
   _owner_id uuid;
   int_value integer;
+  item_name varchar;
 begin
   select kind_id into doc_kind from document_info where id = document_id;
   
@@ -474,11 +475,32 @@ begin
       select g.status_id
         into status_value
         from item_goods i
-          inner join directory d on (i.id = d.id)
-          inner join directory g on (d.owner_id = g.id)
+          join directory d on (i.id = d.id)
+          join directory g on (d.owner_id = g.id)
         where i.id = document_id;
       if (status_value not in (1000, 1004)) then
         raise 'Калькуляция должна быть в стостянии СОСТАВЛЕН или ИЗМЕНЯЕТСЯ';
+      end if;
+     
+      with owner as
+      (
+        select d.owner_id
+          from item_goods i
+            join directory d on (i.id = d.id)
+          where i.id = document_id
+      )
+      select dn.name
+        into item_name
+        from item_deduction i
+          join directory d on (i.id = d.id)
+          join deduction ded on (ded.id = i.deduction_id)
+          join directory dn on (dn.id = ded.id)
+          join owner o on (o.owner_id = d.owner_id)
+        where ded.accrual_base = 1 and d.status_id = 1001
+        limit 1;
+       
+      if (item_name is not null) then
+        raise 'Отчисление "%" должно быть в состоянии СОСТАВЛЕН', item_name;
       end if;
     end if;
   end if;
@@ -490,8 +512,45 @@ begin
       select o.status_id
         into status_value
         from item_operation i
-          inner join directory d on (i.id = d.id)
-          inner join directory o on (d.owner_id = o.id)
+          join directory d on (i.id = d.id)
+          join directory o on (d.owner_id = o.id)
+        where i.id = document_id;
+      if (status_value not in (1000, 1004)) then
+        raise 'Калькуляция должна быть в стостянии СОСТАВЛЕН или ИЗМЕНЯЕТСЯ';
+      end if;
+     
+      with owner as
+      (
+        select d.owner_id
+          from item_operation i
+            join directory d on (i.id = d.id)
+          where i.id = document_id
+      )
+      select dn.name
+        into item_name
+        from item_deduction i
+          join directory d on (i.id = d.id)
+          join deduction ded on (ded.id = i.deduction_id)
+          join directory dn on (dn.id = ded.id)
+          join owner o on (o.owner_id = d.owner_id)
+        where ded.accrual_base = 2 and d.status_id = 1001
+        limit 1;
+       
+      if (item_name is not null) then
+        raise 'Отчисление "%" должно быть в состоянии СОСТАВЛЕН', item_name;
+      end if;
+    end if;
+  end if;
+ 
+ -- список отчислений
+  if (doc_kind = get_uuid('item_deduction')) then
+    -- КОРРЕКТЕН => СОСТАВЛЕН
+    if (status_from = 1001 and status_to = 1000) then
+      select o.status_id
+        into status_value
+        from item_deduction i
+          join directory d on (i.id = d.id)
+          join directory o on (d.owner_id = o.id)
         where i.id = document_id;
       if (status_value not in (1000, 1004)) then
         raise 'Калькуляция должна быть в стостянии СОСТАВЛЕН или ИЗМЕНЯЕТСЯ';
@@ -885,10 +944,14 @@ declare
   do_update boolean;
   cost_material money;
   cost_operation money;
-  _profit_percent decimal;
+  cost_deduction money;
+  _profit_percent numeric;
   _profit_value money;
   _price money;
   _cost money;
+  _accrual_base integer;
+  _percentage numeric;
+  _owner_id uuid;
 begin
   select kind_id into doc_kind from document_info where id = document_id;
   
@@ -982,16 +1045,76 @@ begin
     
     return;
   end if;
+ 
+ -- список отчислений
+  if (doc_kind = get_uuid('item_deduction')) then
+    -- СОСТАВЛЕН => КОРРЕКТЕН
+    if (status_from = 1000 and status_to = 1001) then
+      select i.percentage, i.price, i.cost, o.percentage, o.accrual_base
+        into count_item, price_item, cost_item, _percentage, _accrual_base
+        from item_deduction i
+          inner join deduction o on (o.id = i.deduction_id)
+        where i.id = document_id;
+          
+        do_update = false;
+        if (count_item = 0) then
+          count_item = _percentage;
+         do_update = true;
+        end if;
+       
+        if (price_item = 0::money) then
+          select d.owner_id
+            into _owner_id
+            from item_deduction i
+              join directory d on (d.id = i.id)
+            where i.id = document_id;
+            
+          if (_accrual_base = 1) then
+            select sum(i.cost) 
+              into price_item
+              from item_goods i
+                join directory d on (d.id = i.id)
+              where d.owner_id = _owner_id
+              group by d.owner_id; 
+          else
+            select sum(i.cost) 
+              into price_item
+              from item_operation i
+                join directory d on (d.id = i.id)
+              where d.owner_id = _owner_id
+              group by d.owner_id; 
+          end if;
+         
+          do_update = true;
+        end if;
+       
+        price_item = coalesce(price_item, 0::money);
+       
+        if (do_update or cost_item = 0::money) then
+          cost_item = price_item * count_item / 100;
+          
+          update item_deduction
+            set percentage = count_item,
+                price = price_item,
+                cost = cost_item
+            where id = document_id;
+        end if;
+    end if;
+    
+    return;
+  end if;
   
   if (doc_kind = get_uuid('calculation')) then
     -- СОСТАВЛЕН, ИЗМЕНЯЕТСЯ => КОРРЕКТЕН
     if (status_from in (1000, 1004) and status_to = 1001) then
       select sum(i.cost) into cost_material from item_goods i inner join directory d on (d.id = i.id) where d.owner_id = document_id;
       select sum(i.cost) into cost_operation from item_operation i inner join directory d on (d.id = i.id) where d.owner_id = document_id;
+      select sum(i.cost) into cost_deduction from item_deduction i inner join directory d on (d.id = i.id) where d.owner_id = document_id;
       
       cost_material = coalesce(cost_material, 0::money);
       cost_operation = coalesce(cost_operation, 0::money);
-      _cost = cost_material + cost_operation;
+      cost_deduction = coalesce(cost_deduction, 0::money);
+      _cost = cost_material + cost_operation + cost_deduction;
       
       select profit_percent, profit_value, price into _profit_percent, _profit_value, _price from calculation where id = document_id;
       if (_profit_percent > 0 or _profit_value > 0::money) then
@@ -1002,6 +1125,13 @@ begin
         end if;
         
         _price = _cost + _profit_value;
+      else
+        if (_price > 0::money) then
+          _profit_value = _price - _cost;
+          _profit_percent = _profit_value / _cost * 100;
+        else
+          _price = _cost;
+        end if;
       end if;
       
       update calculation 
@@ -3484,7 +3614,7 @@ GRANT SELECT ON TABLE public.user_alias TO guest;
 GRANT SELECT ON TABLE public.user_alias TO users;
 
 
--- Completed on 2019-05-09 21:19:53
+-- Completed on 2019-05-25 23:11:06
 
 --
 -- PostgreSQL database dump complete
