@@ -3,9 +3,9 @@
 --
 
 -- Dumped from database version 10.2
--- Dumped by pg_dump version 11.2
+-- Dumped by pg_dump version 12.0
 
--- Started on 2019-08-24 17:55:46
+-- Started on 2020-01-07 23:03:30
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -14,19 +14,20 @@ SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
+SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
 --
 -- TOC entry 2 (class 3079 OID 77824)
--- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: 
+-- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 
 --
--- TOC entry 3348 (class 0 OID 0)
+-- TOC entry 3457 (class 0 OID 0)
 -- Dependencies: 2
 -- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: 
 --
@@ -35,7 +36,7 @@ COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UU
 
 
 --
--- TOC entry 849 (class 1247 OID 136085)
+-- TOC entry 865 (class 1247 OID 136085)
 -- Name: access_action; Type: TYPE; Schema: public; Owner: postgres
 --
 
@@ -48,7 +49,7 @@ CREATE TYPE public.access_action AS ENUM (
 ALTER TYPE public.access_action OWNER TO postgres;
 
 --
--- TOC entry 843 (class 1247 OID 119753)
+-- TOC entry 859 (class 1247 OID 119753)
 -- Name: rec_operation; Type: TYPE; Schema: public; Owner: postgres
 --
 
@@ -61,7 +62,7 @@ CREATE TYPE public.rec_operation AS (
 ALTER TYPE public.rec_operation OWNER TO postgres;
 
 --
--- TOC entry 838 (class 1247 OID 119705)
+-- TOC entry 854 (class 1247 OID 119705)
 -- Name: tax_nds; Type: DOMAIN; Schema: public; Owner: postgres
 --
 
@@ -72,7 +73,50 @@ CREATE DOMAIN public.tax_nds AS integer
 ALTER DOMAIN public.tax_nds OWNER TO postgres;
 
 --
--- TOC entry 279 (class 1255 OID 78220)
+-- TOC entry 287 (class 1255 OID 144577)
+-- Name: access_changing_status(uuid, uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.access_changing_status(document_id uuid, changing_status_id uuid) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+declare
+	pay_order_count integer;
+begin
+	select count(po.id) 
+		into pay_order_count 
+		from payment_order po 
+			join document d on (d.id = po.id) 
+		where d.owner_id = document_id and d.status_id = 1001;
+		
+	 -- Материал оплачен (МАТЕРИАЛ ПОЛУЧЕН => МАТЕРИАЛ ОПЛАЧЕН)
+	if (changing_status_id = 'ca7900a0-53e1-4ccd-9835-1ef70526d00f'::uuid) then
+		return pay_order_count = 0;
+	end if;
+
+	-- Закрыть (МАТЕРИАЛ ПОЛУЧЕН => ЗАКРЫТЬ
+	if (changing_status_id = '17fb853e-b137-49d9-ab71-2454a7e181e9'::uuid) then
+		return pay_order_count > 0;
+	end if;
+
+	return true;
+end;
+$$;
+
+
+ALTER FUNCTION public.access_changing_status(document_id uuid, changing_status_id uuid) OWNER TO postgres;
+
+--
+-- TOC entry 3458 (class 0 OID 0)
+-- Dependencies: 287
+-- Name: FUNCTION access_changing_status(document_id uuid, changing_status_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.access_changing_status(document_id uuid, changing_status_id uuid) IS 'Процедура возвращает флаг видимости лоя фннкции перевода состояния указанного документа.';
+
+
+--
+-- TOC entry 298 (class 1255 OID 78220)
 -- Name: account_test(integer[]); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -80,15 +124,15 @@ CREATE FUNCTION public.account_test(account integer[]) RETURNS boolean
     LANGUAGE plpgsql
     AS $$
 declare
-   k integer[] := '{ 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1 }';
-   sum integer;
+	k integer[] := '{ 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1 }';
+	sum integer;
 begin
-   if (array_length(account, 1) != 23) then
-      return false;
-   end if;
+	if (array_length(account, 1) != 23) then
+		return false;
+	end if;
 
-   sum := control_sum(account, k);
-   return sum % 10 = 0;
+	sum := control_sum(account, k);
+	return sum % 10 = 0;
 end;
 $$;
 
@@ -96,7 +140,7 @@ $$;
 ALTER FUNCTION public.account_test(account integer[]) OWNER TO postgres;
 
 --
--- TOC entry 278 (class 1255 OID 103152)
+-- TOC entry 297 (class 1255 OID 103152)
 -- Name: add_percent_archive(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -104,18 +148,18 @@ CREATE FUNCTION public.add_percent_archive() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  last_percent numeric;
+	last_percent numeric;
 begin
-  if (new.percentage != old.percentage and old.percentage > 0) then
-    with rows as(
-      insert into directory (owner_id, kind_id)
-        values (old.id, get_uuid('percentage')) returning id
-    )
-    insert into percentage (id, percent_value)
-      values ((select id from rows), old.percentage);
-  end if;
+	if (new.percentage != old.percentage and old.percentage > 0) then
+		with rows as(
+			insert into directory (owner_id, kind_id)
+				values (old.id, get_uuid('percentage')) returning id
+		)
+		insert into percentage (id, percent_value)
+			values ((select id from rows), old.percentage);
+	end if;
     
-  return new;
+	return new;
 end;
 $$;
 
@@ -123,7 +167,7 @@ $$;
 ALTER FUNCTION public.add_percent_archive() OWNER TO postgres;
 
 --
--- TOC entry 276 (class 1255 OID 78270)
+-- TOC entry 295 (class 1255 OID 78270)
 -- Name: add_price_archive(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -131,18 +175,18 @@ CREATE FUNCTION public.add_price_archive() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  last_price money;
+	last_price money;
 begin
-  if (new.price != old.price and old.price > 0.0::money) then
-    with rows as(
-      insert into directory (owner_id, kind_id)
-        values (old.id, get_uuid('price')) returning id
-    )
-    insert into price (id, price_value)
-      values ((select id from rows), old.price);
-  end if;
+	if (new.price != old.price and old.price > 0.0::money) then
+		with rows as(
+			insert into directory (owner_id, kind_id)
+				values (old.id, get_uuid('price')) returning id
+		)
+		insert into price (id, price_value)
+			values ((select id from rows), old.price);
+	end if;
     
-  return new;
+	return new;
 end;
 $$;
 
@@ -150,7 +194,7 @@ $$;
 ALTER FUNCTION public.add_price_archive() OWNER TO postgres;
 
 --
--- TOC entry 287 (class 1255 OID 102898)
+-- TOC entry 307 (class 1255 OID 102898)
 -- Name: add_salary_archive(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -158,18 +202,18 @@ CREATE FUNCTION public.add_salary_archive() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  last_salary money;
+	last_salary money;
 begin
-  if (new.salary != old.salary and old.salary > 0.0::money) then
-    with rows as(
-      insert into directory (owner_id, kind_id)
-        values (old.id, 'b5fc483e-da12-49bb-addf-5ec81054cd66') returning id
-    )
-    insert into price (id, price_value)
-      values ((select id from rows), old.salary);
-  end if;
+	if (new.salary != old.salary and old.salary > 0.0::money) then
+		with rows as(
+			insert into directory (owner_id, kind_id)
+				values (old.id, get_uuid('price')) returning id
+		)
+		insert into price (id, price_value)
+			values ((select id from rows), old.salary);
+	end if;
     
-  return new;
+	return new;
 end;
 $$;
 
@@ -177,7 +221,7 @@ $$;
 ALTER FUNCTION public.add_salary_archive() OWNER TO postgres;
 
 --
--- TOC entry 303 (class 1255 OID 86515)
+-- TOC entry 325 (class 1255 OID 86515)
 -- Name: bank_test_account(numeric, numeric, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -185,16 +229,16 @@ CREATE FUNCTION public.bank_test_account(account numeric, bik numeric, table_nam
     LANGUAGE plpgsql
     AS $$
 declare
-   bik_a integer[];
-   account_a integer[];
+	bik_a integer[];
+	account_a integer[];
 begin
-   bik_a = case table_name
-     when 'bank' then string_to_array('0' || substring(lpad(bik::character varying, 9, '0') from 5 for 2), NULL)::integer[]
-     when 'account' then string_to_array((bik % 1000)::character varying, NULL)::integer[]
-   end;
+	bik_a = case table_name
+		when 'bank' then string_to_array('0' || substring(lpad(bik::character varying, 9, '0') from 5 for 2), NULL)::integer[]
+		when 'account' then string_to_array((bik % 1000)::character varying, NULL)::integer[]
+	end;
    
-   account_a = string_to_array(account::character varying, NULL)::integer[];
-   return account_test(bik_a || account_a);
+	account_a = string_to_array(account::character varying, NULL)::integer[];
+	return account_test(bik_a || account_a);
 end;
 $$;
 
@@ -202,7 +246,7 @@ $$;
 ALTER FUNCTION public.bank_test_account(account numeric, bik numeric, table_name character varying) OWNER TO postgres;
 
 --
--- TOC entry 294 (class 1255 OID 127942)
+-- TOC entry 315 (class 1255 OID 127942)
 -- Name: calculate_complete_status(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -224,7 +268,7 @@ $$;
 ALTER FUNCTION public.calculate_complete_status() OWNER TO postgres;
 
 --
--- TOC entry 263 (class 1255 OID 78190)
+-- TOC entry 280 (class 1255 OID 78190)
 -- Name: change_status(uuid, bigint, boolean, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -286,7 +330,7 @@ $$;
 ALTER FUNCTION public.change_status(document_id uuid, new_status_id bigint, auto boolean, note character varying) OWNER TO postgres;
 
 --
--- TOC entry 329 (class 1255 OID 136089)
+-- TOC entry 353 (class 1255 OID 136089)
 -- Name: check_access_row(uuid, public.access_action); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -310,7 +354,7 @@ $$;
 ALTER FUNCTION public.check_access_row(id_row uuid, access public.access_action) OWNER TO postgres;
 
 --
--- TOC entry 269 (class 1255 OID 78217)
+-- TOC entry 286 (class 1255 OID 78217)
 -- Name: check_bank_codes(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -318,13 +362,13 @@ CREATE FUNCTION public.check_bank_codes() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-   if new.bik > 0 and new.account > 0 then
-     if (not bank_test_account(new.account, new.bik, TG_TABLE_NAME::character varying)) then
-        raise exception 'Некорректное значение БИК или корр. счета';
-     end if;
-   end if;
+	if new.bik > 0 and new.account > 0 then
+		if (not bank_test_account(new.account, new.bik, TG_TABLE_NAME::character varying)) then
+			raise exception 'Некорректное значение БИК или корр. счета';
+		end if;
+	end if;
 
-   return new;
+	return new;
 end;
 $$;
 
@@ -332,7 +376,7 @@ $$;
 ALTER FUNCTION public.check_bank_codes() OWNER TO postgres;
 
 --
--- TOC entry 309 (class 1255 OID 78309)
+-- TOC entry 332 (class 1255 OID 78309)
 -- Name: check_contractor_account(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -340,16 +384,16 @@ CREATE FUNCTION public.check_contractor_account() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  bik numeric(9, 0);
+	bik numeric(9, 0);
 begin
-  if ((new.bank_id is not null) and (new.account_value is not null)) then
-    select bank.bik into bik from bank where bank.id = new.bank_id;
-    if (not bank_test_account(new.account_value, bik, TG_TABLE_NAME::character varying)) then
-      raise exception 'Некорректное значение расч. счета';
-    end if;
-  end if;
+	if ((new.bank_id is not null) and (new.account_value is not null)) then
+		select bank.bik into bik from bank where bank.id = new.bank_id;
+		if (not bank_test_account(new.account_value, bik, TG_TABLE_NAME::character varying)) then
+			raise exception 'Некорректное значение расч. счета';
+		end if;
+	end if;
   
-  return new;
+	return new;
 end;
 $$;
 
@@ -357,7 +401,7 @@ $$;
 ALTER FUNCTION public.check_contractor_account() OWNER TO postgres;
 
 --
--- TOC entry 325 (class 1255 OID 78165)
+-- TOC entry 348 (class 1255 OID 78165)
 -- Name: check_contractor_codes(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -386,7 +430,7 @@ $$;
 ALTER FUNCTION public.check_contractor_codes() OWNER TO postgres;
 
 --
--- TOC entry 322 (class 1255 OID 78049)
+-- TOC entry 345 (class 1255 OID 78049)
 -- Name: check_document_deleting(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -413,7 +457,7 @@ begin
   end if;
   
   status_e = coalesce(status_e, 0);
-  if old.status_id not in (status_s, status_e, 500) then
+  if (old.status_id not in (status_s, status_e, 500)) then
     raise '% (id = %) можно удалить только в состоянии "%" (или в отмененном состоянии)',
       name_value,
       old.id,
@@ -428,7 +472,7 @@ $$;
 ALTER FUNCTION public.check_document_deleting() OWNER TO postgres;
 
 --
--- TOC entry 310 (class 1255 OID 78188)
+-- TOC entry 333 (class 1255 OID 78188)
 -- Name: check_document_values(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -495,6 +539,18 @@ begin
 		when get_uuid('order_shipped') then
 			perform checking_order_shipped(document_id, status_from, status_to, auto);
 		
+		-- документы от поставщика
+		when get_uuid('accounting_document') then
+			perform checking_accounting_document(document_id, status_from, status_to, auto);
+		
+		-- Выполненные операции
+		when get_uuid('operation_executor') then
+			perform checking_operation_executor(document_id, status_from, status_to, auto);
+		
+		-- инвентаризация
+		when get_uuid('inventory') then
+			perform checking_inventory(document_id, status_from, status_to, auto);
+		
 		else
         	-- nothing
 	end case;
@@ -505,7 +561,7 @@ $$;
 ALTER FUNCTION public.check_document_values(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 323 (class 1255 OID 78137)
+-- TOC entry 346 (class 1255 OID 78137)
 -- Name: check_kind(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -533,7 +589,95 @@ $$;
 ALTER FUNCTION public.check_kind() OWNER TO postgres;
 
 --
--- TOC entry 321 (class 1255 OID 103307)
+-- TOC entry 264 (class 1255 OID 144650)
+-- Name: check_kind_schema(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.check_kind_schema() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+declare
+	codes_equal bool;
+begin
+    select code = schema_command ->> 'viewer' 
+    	into codes_equal 
+        from kind 
+        where id = new.id;
+	if (not codes_equal) then
+    	raise exception 'Значение ключа "viewer" должно быть равно значению поля "code"';
+    end if;
+    
+    return new;
+end;
+$$;
+
+
+ALTER FUNCTION public.check_kind_schema() OWNER TO postgres;
+
+--
+-- TOC entry 311 (class 1255 OID 144643)
+-- Name: checking_accounting_document(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.checking_accounting_document(document_id uuid, status_from bigint, status_to bigint, auto boolean DEFAULT false) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	r_doc record;
+begin
+	select ad.doc_date, ad.doc_number, ad.doc_type_id, atd.need_goods_detail, r.kind_id, r.status_id
+		into r_doc
+		from accounting_document ad
+			left join accounting_type_doc atd on (atd.id = ad.doc_type_id)
+			join document d on (d.id = ad.id)
+			join document r on (r.id = d.owner_id)
+		where ad.id = document_id;
+	
+	-- СОСТАВЛЕН => любое состояние
+	if (status_from = 1000) then
+		if (r_doc.doc_date is null) then
+			raise 'Не указана дата документа.';
+		end if;
+		
+		if (coalesce(r_doc.doc_number, '') = '') then
+			raise 'Не указан номер документа.';
+		end if;
+	
+		if (r_doc.doc_type_id is null) then
+			raise 'Не указан тип документа.';
+		end if;
+
+		-- СОСТАВЛЕН => КОРРЕКТЕН
+		if (status_to = 1001) then
+			if (r_doc.need_goods_detail) then
+				raise 'Для данного типа докумена необходимо заполнить список товаров в разделе "ДЕТАЛИ".';
+			end if;
+		end if;
+	
+		-- СОСТАВЛЕЕН => ДЕТАЛИ
+		if (status_to = 1021) then
+			if (not r_doc.need_goods_detail) then
+				raise 'Для данного типа докумена нет необходимости заполнять список товаров в разделе "ДЕТАЛИ".';
+			end if;
+		end if;
+	end if;
+
+	-- из любого состояния => ЗАКРЫТ
+	if (status_to = 1020) then
+		if (r_doc.kind_id = get_uuid('request')) then
+			if (not r_doc.status_id in (1010, 1019, 1020)) then
+				raise 'Заказ должен находиться в состоянии МАТЕРИАЛ ПОЛУЧЕН, МАТЕРИАЛ ОПЛАЧЕН или ЗАКРЫТ.';
+			end if;
+		end if;
+	end if;
+end;
+$$;
+
+
+ALTER FUNCTION public.checking_accounting_document(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
+
+--
+-- TOC entry 344 (class 1255 OID 103307)
 -- Name: checking_calculation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -542,8 +686,15 @@ CREATE FUNCTION public.checking_calculation(document_id uuid, status_from bigint
     AS $$
 declare
 	_owner_id uuid;
+	_base bool;
 	status_value bigint;
 begin
+	select d.owner_id, c.base_calculation
+		into _owner_id, _base
+		from calculation c
+			join directory d on (d.id = c.id)
+		where d.id = document_id;
+	
 	-- СОСТАВЛЕН => КОРРЕКТЕН
 	if (status_from = 1000 and status_to = 1001) then
 		if (exists(select id from directory where kind_id = get_uuid('item_goods') and owner_id = document_id and status_id = 1000)) then
@@ -557,18 +708,15 @@ begin
 
 	-- КОРРЕКТЕН => УТВЕРЖДЁН
 	if (status_from = 1001 and status_to = 1002) then
-		select owner_id into _owner_id from directory where id = document_id;
-	
-		if (exists(select c.base_calculation from calculation c join directory d on (d.id = c.id) where d.owner_id = _owner_id and d.status_id = 1002 and c.base_calculation)) then
+		if (_base and exists(select c.base_calculation from calculation c join directory d on (d.id = c.id) where d.owner_id = _owner_id and d.status_id = 1002 and c.base_calculation)) then
 			raise 'Может быть только одна основная, утверждённая калькуляция';
 		end if;
 	end if;
 
 	-- КОРРЕКТЕН, УТВЕРЖДЁН => ИЗМЕНЯЕТСЯ
 	if (status_from in (1001, 1002) and status_to = 1004) then
-		select owner_id into _owner_id from directory where id = document_id;
 		select status_id into status_value from directory where id = _owner_id;
-		if (status_value not in (1000, 1004)) then
+		if (_base and status_value not in (1000, 1004)) then
 			raise 'Номенклатура должна быть в стостянии СОСТАВЛЕН или ИЗМЕНЯЕТСЯ';
 		end if;
 	end if;
@@ -579,7 +727,7 @@ $$;
 ALTER FUNCTION public.checking_calculation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 289 (class 1255 OID 103312)
+-- TOC entry 309 (class 1255 OID 103312)
 -- Name: checking_deduction(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -603,7 +751,7 @@ $$;
 ALTER FUNCTION public.checking_deduction(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 311 (class 1255 OID 103313)
+-- TOC entry 334 (class 1255 OID 103313)
 -- Name: checking_document(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -627,7 +775,35 @@ $$;
 ALTER FUNCTION public.checking_document(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 301 (class 1255 OID 103311)
+-- TOC entry 290 (class 1255 OID 144802)
+-- Name: checking_inventory(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.checking_inventory(document_id uuid, status_from bigint, status_to bigint, auto boolean DEFAULT false) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	emp_id uuid;
+begin
+	select employee_id
+		into emp_id
+		from inventory
+		where id = document_id;
+	
+	-- СОСТАВЛЕН => КОРРЕКТЕН
+	if (status_from in (1000, 1004) and status_to = 1001) then
+		if (emp_id is null) then
+			raise 'Необходимо выбрать сотрудника отвечающего за инвентаризацию.';
+		end if;
+	end if;
+end;
+$$;
+
+
+ALTER FUNCTION public.checking_inventory(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
+
+--
+-- TOC entry 323 (class 1255 OID 103311)
 -- Name: checking_item_deduction(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -656,7 +832,7 @@ $$;
 ALTER FUNCTION public.checking_item_deduction(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 319 (class 1255 OID 103309)
+-- TOC entry 342 (class 1255 OID 103309)
 -- Name: checking_item_goods(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -707,7 +883,7 @@ $$;
 ALTER FUNCTION public.checking_item_goods(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 306 (class 1255 OID 103310)
+-- TOC entry 329 (class 1255 OID 103310)
 -- Name: checking_item_operation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -717,15 +893,19 @@ CREATE FUNCTION public.checking_item_operation(document_id uuid, status_from big
 declare
 	status_value bigint;
 	item_name varchar;
+	calc_id uuid;
+	goods_required numeric;
+	o_items record;
 begin
+	select o.status_id, o.id
+		into status_value, calc_id
+		from item_operation i
+			join directory d on (i.id = d.id)
+			join directory o on (d.owner_id = o.id)
+		where i.id = document_id;
+		
 	-- КОРРЕКТЕН => СОСТАВЛЕН
     if (status_from = 1001 and status_to = 1000) then
-		select o.status_id
-			into status_value
-			from item_operation i
-				join directory d on (i.id = d.id)
-				join directory o on (d.owner_id = o.id)
-			where i.id = document_id;
 		if (status_value not in (1000, 1004)) then
 			raise 'Калькуляция должна быть в стостянии СОСТАВЛЕН или ИЗМЕНЯЕТСЯ';
 		end if;
@@ -751,6 +931,49 @@ begin
 			raise 'Отчисление "%" должно быть в состоянии СОСТАВЛЕН', item_name;
 		end if;
 	end if;
+
+	-- СОСТАВЛЕН => КОРРЕКТЕН
+    if (status_from = 1000 and status_to = 1001) then
+    	for o_items in
+    		select gio.goods_id, sum(gio.goods_count) as goods_count
+    			from goods_in_operation gio
+    				join item_operation io on (io.id = gio.item_operation_id)
+    				join directory d on (d.id = io.id)
+    			where 
+    				d.owner_id = calc_id and
+					(
+						d.status_id = 1001 or
+						d.id = document_id
+					)
+    			group by gio.goods_id
+    	loop
+    		o_items.goods_count = coalesce(o_items.goods_count, 0);
+    		if (o_items.goods_count = 0) then
+    			raise 'Количество материала должно быть больше 0.';
+    		end if;
+    	
+    		select sum(ig.goods_count)
+				into goods_required
+				from item_goods ig
+					join directory d on (d.id = ig.id)
+				where 
+					d.owner_id = calc_id and 
+					ig.goods_id = o_items.goods_id and
+					d.status_id = 1001;
+			goods_required = coalesce(goods_required, 0);
+		
+			if (goods_required = 0) then
+				raise 'В списке номенклатуры не найдена запись содержащая материал %', (select name from directory where id = o_items.goods_id);
+			end if;
+		
+			if (o_items.goods_count > goods_required) then
+				raise 'Слишком большое количество материала (%: %). Максимальное количество - %', 
+					(select name from directory where id = o_items.goods_id),
+					o_items.goods_count,
+					goods_required;
+			end if;
+    	end loop;
+    end if;
 end;
 $$;
 
@@ -758,7 +981,7 @@ $$;
 ALTER FUNCTION public.checking_item_operation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 291 (class 1255 OID 103308)
+-- TOC entry 312 (class 1255 OID 103308)
 -- Name: checking_operation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -814,7 +1037,62 @@ $$;
 ALTER FUNCTION public.checking_operation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 281 (class 1255 OID 103304)
+-- TOC entry 268 (class 1255 OID 144760)
+-- Name: checking_operation_executor(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.checking_operation_executor(document_id uuid, status_from bigint, status_to bigint, auto boolean DEFAULT false) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	rec record;
+begin
+	select order_id, goods_id, operation_id, operation_count, using_goods_id, employee_id
+		into rec
+		from operation_executor
+		where id = document_id;
+		
+	-- СОСТАВЛЕН => ПЕРВОЕ ДОПОЛНЕНИЕ
+	if (status_from = 1000 and status_to = 1017) then
+		if (rec.order_id is null) then
+			raise 'Выберите заказ!';
+		end if;
+	end if;
+
+	-- ПЕРВОЕ ДОПОЛНЕНИЕ => ВТОРОЕ ДОПОЛНЕНИЕ
+	if (status_from = 1017 and status_to = 1018) then
+		if (rec.goods_id is null) then
+			raise 'Выберите номенклатуру!';
+		end if;
+	end if;
+
+	-- ВТОРОЕ ДОПОЛНЕНИЕ => КОРРЕКТЕН
+	if (status_from = 1018 and status_to = 1001) then
+		rec.operation_count = coalesce(rec.operation_count, 0);
+		if (rec.operation_count = 0) then
+			raise 'Укажите количество операций!';
+		end if;
+	
+		if (rec.using_goods_id is null) then
+			raise 'Выберите материал использованый в операции!';
+		end if;
+	
+		if (rec.operation_id is null) then
+			raise 'Выберите операцию!';
+		end if;
+	
+		if (rec.employee_id is null) then
+			raise 'Выберите исполнителя!';
+		end if;
+	end if;
+end;
+$$;
+
+
+ALTER FUNCTION public.checking_operation_executor(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
+
+--
+-- TOC entry 300 (class 1255 OID 103304)
 -- Name: checking_operation_type(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -837,7 +1115,7 @@ $$;
 ALTER FUNCTION public.checking_operation_type(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 273 (class 1255 OID 103482)
+-- TOC entry 292 (class 1255 OID 103482)
 -- Name: checking_order(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -923,7 +1201,7 @@ $$;
 ALTER FUNCTION public.checking_order(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 304 (class 1255 OID 103517)
+-- TOC entry 327 (class 1255 OID 103517)
 -- Name: checking_order_complete(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -969,7 +1247,7 @@ $$;
 ALTER FUNCTION public.checking_order_complete(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 258 (class 1255 OID 119715)
+-- TOC entry 273 (class 1255 OID 119715)
 -- Name: checking_order_shipped(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1023,7 +1301,7 @@ $$;
 ALTER FUNCTION public.checking_order_shipped(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 305 (class 1255 OID 103314)
+-- TOC entry 328 (class 1255 OID 103314)
 -- Name: checking_request(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1033,16 +1311,13 @@ CREATE FUNCTION public.checking_request(document_id uuid, status_from bigint, st
 declare
 	c_id uuid;
 	detail_count integer;
-	_waybill_number varchar;
-	_waybill_date timestamptz;
-	_invoice_number varchar;
-	_invoice_date timestamptz;
 	_tax_payer boolean;
 begin
-	select contractor_id, waybill_number, waybill_date, invoice_number, invoice_date, tax_payer
-		into c_id, _waybill_number, _waybill_date, _invoice_number, _invoice_date, _tax_payer
-		from request 
-		where id = document_id;
+	select r.contractor_id
+		into c_id
+		from request r
+			join contractor c on (c.id = r.contractor_id)
+		where r.id = document_id;
 
 	-- СОСТАВЛЕН, ИЗМЕНЯЕТСЯ => КОРРЕКТЕН
 	if (status_from in (1000, 1004) and status_to = 1001) then
@@ -1056,24 +1331,49 @@ begin
 		end if;
 	end if;
 
+	-- ПОЛУЧЕН СЧЕТ => СЧЁТ ОПЛАЧЕН
+	-- МАТЕРИАЛ ПОЛУЧЕН => МАТЕРИАЛ ОПЛАЧЕН
+	if ((status_from = 1008 and status_to = 1009) or (status_from = 1010 and status_to = 1019)) then
+		select count(po.id) 
+			into detail_count 
+			from payment_order po 
+				join document d on (d.id = po.id) 
+			where d.owner_id = document_id;
+		if (detail_count = 0) then
+			raise 'Список платёжных документов пуст. Заполните его.';
+		end if;
+	
+		select count(po.id) 
+			into detail_count 
+			from payment_order po 
+				join document d on (d.id = po.id) 
+			where 
+				d.owner_id = document_id and d.status_id in (1000);
+		if (detail_count > 0) then
+			raise 'Все платёжные документы должны быть в состоянии "КОРРЕКТЕН".';
+		end if;
+		
+	end if;
+
 	-- СЧЁТ ОПЛАЧЕН => МАТЕРИАЛ ПОЛУЧЕН
-	if (status_from = 1009 and status_to = 1010) then
-		if (_waybill_number is null) then
-			raise 'Укажите номер накладной!';
+	if (status_from in (1007, 1009) and status_to = 1010) then
+		select count(sd.id) 
+			into detail_count 
+			from accounting_document sd 
+				join document d on (d.id = sd.id) 
+			where d.owner_id = document_id;
+		if (detail_count = 0) then
+			raise 'Список документов от поставщика пуст. Заполните его.';
 		end if;
-		
-		if (_waybill_date is null) then
-			raise 'Укажите дату накладной!';
-		end if;
-		
-		if (_tax_payer) then
-			if (_invoice_number is null) then
-				raise 'Укажите номер счёт-фактуры!';
-			end if;
-		
-			if (_invoice_date is null) then
-				raise 'Укажите дату счёт-фактуры!';
-			end if;
+	
+		select count(sd.id) 
+			into detail_count 
+			from accounting_document sd 
+				join document d on (d.id = sd.id) 
+			where 
+				d.owner_id = document_id and d.status_id in (1000, 1021, 1004);
+		if (detail_count > 0) then
+			raise 'Все документы от поставщика должны быть в состоянии "КОРРЕКТЕН".';
 		end if;
 	end if;
 end;
@@ -1083,7 +1383,41 @@ $$;
 ALTER FUNCTION public.checking_request(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 283 (class 1255 OID 103210)
+-- TOC entry 276 (class 1255 OID 144711)
+-- Name: complete_accounting_document(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.complete_accounting_document(document_id uuid, status_from bigint, status_to bigint, auto boolean DEFAULT false) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	r_doc record;
+begin
+	select atd.need_goods_detail, r.kind_id, r.id as request_id
+		into r_doc
+		from accounting_document ad
+			left join accounting_type_doc atd on (atd.id = ad.doc_type_id)
+			join document d on (d.id = ad.id)
+			join document r on (r.id = d.owner_id)
+		where ad.id = document_id;
+	
+	-- СОСТАВЛЕН => ДЕТАЛИ
+	if (status_from = 1000 and status_to = 1021) then
+		if (r_doc.kind_id = get_uuid('request') and r_doc.need_goods_detail) then
+			insert into accounting_detail (owner_id, goods_id, goods_count, price, cost, tax, tax_value, cost_with_tax)
+				select document_id, rd.goods_id, rd.goods_count, rd.price, rd.cost, rd.tax, rd.tax_value, rd.cost_with_tax 
+					from request_detail rd
+					where rd.owner_id = r_doc.request_id;
+			end if;
+	end if;
+end;
+$$;
+
+
+ALTER FUNCTION public.complete_accounting_document(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
+
+--
+-- TOC entry 302 (class 1255 OID 103210)
 -- Name: complete_calculation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1142,7 +1476,7 @@ $$;
 ALTER FUNCTION public.complete_calculation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 274 (class 1255 OID 103211)
+-- TOC entry 293 (class 1255 OID 103211)
 -- Name: complete_goods(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1161,7 +1495,7 @@ begin
 				from calculation c 
 					join directory d on (d.id = c.id) 
 				where 
-					d.owner_id = document_id and d.status_id = 1002
+					d.owner_id = document_id and d.status_id = 1002 and c.base_calculation
 				limit 1;
 
 			_price = coalesce(_price, 0::money);
@@ -1176,7 +1510,61 @@ $$;
 ALTER FUNCTION public.complete_goods(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 262 (class 1255 OID 103209)
+-- TOC entry 317 (class 1255 OID 144801)
+-- Name: complete_inventory(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.complete_inventory(document_id uuid, status_from bigint, status_to bigint, auto boolean DEFAULT false) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	rec record;
+	remaind numeric;
+	invenory_date timestamptz;
+begin
+	select d.doc_date
+		into invenory_date
+		from inventory i
+			join document d on (d.id = i.id)
+		where
+			d.id = document_id;
+	
+	-- КОРРЕКТЕН => УТВЕРЖДЕН
+	if (status_from = 1001 and status_to = 1002) then
+		for rec in
+			select det.goods_id, det.goods_count
+				from inventory_detail det
+					join inventory inv on (inv.id = det.owner_id)
+				where
+					inv.id = document_id
+		loop
+			remaind = get_goods_remainder(rec.goods_id, invenory_date::date);
+			if (remaind > 0) then
+				perform insert_movement_goods(document_id, rec.goods_id, -remaind);
+			end if;
+		
+			perform insert_movement_goods(document_id, rec.goods_id, rec.goods_count);
+		end loop;
+	end if;
+
+	-- УТВЕРЖДЕН => ИЗМЕНЯЕТСЯ или ОТМЕНЕН
+	if (status_from = 1002 and status_to in (1004, 1011)) then
+		with rows as
+		(
+			delete from movement_goods mg
+				where mg.source_doc_id = document_id
+				returning id
+		)
+		delete from directory where id = (select id from rows);
+	end if;
+end;
+$$;
+
+
+ALTER FUNCTION public.complete_inventory(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
+
+--
+-- TOC entry 278 (class 1255 OID 103209)
 -- Name: complete_item_deduction(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1260,7 +1648,7 @@ $$;
 ALTER FUNCTION public.complete_item_deduction(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 256 (class 1255 OID 103206)
+-- TOC entry 271 (class 1255 OID 103206)
 -- Name: complete_item_goods(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1304,7 +1692,7 @@ $$;
 ALTER FUNCTION public.complete_item_goods(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 298 (class 1255 OID 103208)
+-- TOC entry 320 (class 1255 OID 103208)
 -- Name: complete_item_operation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1313,35 +1701,113 @@ CREATE FUNCTION public.complete_item_operation(document_id uuid, status_from big
     AS $$
 declare
 declare
-	count_item numeric;
-	price_item money;
-	cost_item money;
-	price_material money;
 	do_update boolean;
+	rec record;
+	o_items record;
+	g_items record;
+	goods_in_operations numeric;
+	goods_required numeric;
+	item_goods_id uuid;
 begin
+	select i.operation_count, i.price, i.cost, o.salary, d.owner_id as calc_id
+		into rec
+		from item_operation i
+			join operation o on (o.id = i.operation_id)
+			join directory d on (d.id = i.id)
+		where i.id = document_id;
+		
 	-- СОСТАВЛЕН => КОРРЕКТЕН
 	if (status_from = 1000 and status_to = 1001) then
-		select i.operation_count, i.price, i.cost, o.salary
-			into count_item, price_item, cost_item, price_material
-			from item_operation i
-				join operation o on (o.id = i.operation_id)
-			where i.id = document_id;
-
 		do_update = false;
-		if (price_item = 0::money) then
-			price_item = price_material;
+		if (rec.price = 0::money) then
+			rec.price = rec.salary;
 			do_update = true;
 		end if;
 
-		if (do_update or cost_item = 0::money) then
-			cost_item = price_item * count_item;
+		if (do_update or rec.cost = 0::money) then
+			rec.cost = rec.price * rec.operation_count;
 
 			update item_operation
-				set price = price_item,
-					cost = cost_item
+				set price = rec.price,
+					cost = rec.cost
 				where id = document_id;
 		end if;
 	end if;
+
+	-- СОСТАВЛЕН => КОРРЕКТЕН
+	if (status_from = 1000 and status_to = 1001) then
+		-- обновление количества используемых материалов в списке номенклатуры
+		for o_items in
+			select gio.goods_id, sum(gio.goods_count) as goods_count
+				from goods_in_operation gio
+				where gio.item_operation_id = document_id
+				group by gio.goods_id
+		loop
+			for g_items in
+				select ig.id, ig.goods_count, ig.uses, (ig.goods_count - ig.uses) as required
+					from item_goods ig
+						join directory d on (d.id = ig.id)
+					where
+						d.owner_id = rec.calc_id and
+						d.status_id = 1001 and
+						ig.uses < ig.goods_count and
+						ig.goods_id = o_items.goods_id
+			loop
+				if (o_items.goods_count <= g_items.required) then
+					update item_goods
+						set uses = uses + o_items.goods_count
+						where id = g_items.id;
+					exit;
+				else
+					update item_goods
+						set uses = g_items.goods_count
+						where id = g_items.id;
+					o_items.goods_count = o_items.goods_count - g_items.required;
+					if (o_items.goods_count <= 0) then
+						exit;
+					end if;
+				end if;
+			end loop;
+		end loop;
+	end if;
+
+	-- СОСТАВЛЕН => КОРРЕКТЕН
+	if (status_from = 1001 and status_to = 1000) then
+		-- обновление количества используемых материалов в списке номенклатуры
+		for o_items in
+			select gio.goods_id, sum(gio.goods_count) as goods_count
+				from goods_in_operation gio
+				where gio.item_operation_id = document_id
+				group by gio.goods_id
+		loop
+			for g_items in
+				select ig.id, ig.goods_count, ig.uses
+					from item_goods ig
+						join directory d on (d.id = ig.id)
+					where
+						d.owner_id = rec.calc_id and
+						d.status_id = 1001 and
+						ig.uses > 0 and
+						ig.goods_id = o_items.goods_id
+			loop
+				if (o_items.goods_count <= g_items.uses) then
+					update item_goods
+						set uses = uses - o_items.goods_count
+						where id = g_items.id;
+					exit;
+				else
+					update item_goods
+						set uses = 0
+						where id = g_items.id;
+					o_items.goods_count = o_items.goods_count - g_items.uses;
+					if (o_items.goods_count <= 0) then
+						exit;
+					end if;
+				end if;
+			end loop;
+		end loop;
+	end if;
+
 end;
 $$;
 
@@ -1349,7 +1815,7 @@ $$;
 ALTER FUNCTION public.complete_item_operation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 307 (class 1255 OID 103205)
+-- TOC entry 330 (class 1255 OID 103205)
 -- Name: complete_operation(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1397,7 +1863,7 @@ $$;
 ALTER FUNCTION public.complete_operation(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 252 (class 1255 OID 127931)
+-- TOC entry 266 (class 1255 OID 127931)
 -- Name: complete_operation_executor(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1405,71 +1871,93 @@ CREATE FUNCTION public.complete_operation_executor(document_id uuid, status_from
     LANGUAGE plpgsql
     AS $$
 declare
-	_order_id uuid;
-	_goods_id uuid;
-	_operation_id uuid;
-	_operation_count integer;
-	_op uuid;
-	_op_count integer;
-	_op_complete integer;
+	rec_order record;
+	rec_oe record;
 	rec_exec record;
-	
+	goods_count numeric;
+	op_count integer;
+	remainder numeric;
 begin
-	-- ВТОРОЕ ДОПОЛНЕНИЕ => КОРРЕКТЕН
-	if (status_from = 1018 and status_to = 1001) then
-		update document
-			set owner_id = _op
-			where id = document_id;
-	end if;
-
 	-- КОРРЕКТЕН => ВЫПОЛНЕНО
 	if (status_from = 1001 and status_to = 1016) then
-		select o_e.order_id, o_e.goods_id, o_e.operation_id, o_e.operation_count
-			into _order_id, _goods_id, _operation_id, _operation_count
-			from operation_executor o_e
-			where id = document_id;
+		select e.order_id, e.goods_id, e.operation_id, e.operation_count, e.using_goods_id, d.doc_date
+			into rec_oe
+			from operation_executor e
+				join document d on (e.id = d.id)
+			where e.id = document_id;
 		
-		for rec_exec in
+		op_count = rec_oe.operation_count;
+		
+		-- выберем из заказов на изготовление все документы "Выполнение заказа" в статусе "В ПРОИЗВОДСТВЕ"
+		for rec_order in
 			select o_c.id
 				from order_production o_p
 					join document d_oc on (d_oc.owner_id = o_p.id)
 					join order_complete o_c on (o_c.id = d_oc.id)
 				where 
-					o_p.id = _order_id and
-					o_c.goods_id = _goods_id and
+					o_p.id = rec_oe.order_id and
+					o_c.goods_id = rec_oe.goods_id and
 					d_oc.status_id = 1013
 				order by d_oc.doc_date
 		loop
+			-- документ "Выполнение заказа" должен содержать производственную операцию
 			select o_e.id, o_e.operation_count, o_e.completed
-				into _op, _op_count, _op_complete
+				into rec_exec
 				from operation_execute o_e
 					join document d on (d.id = o_e.id)
 				where
-					d.owner_id = rec_exec.id and
-					o_e.operation_id = _operation_id;
+					d.owner_id = rec_order.id and
+					o_e.operation_id = rec_oe.operation_id;
 			
-			if (_op is null) then
+			if (rec_exec is null) then
 				raise 'Не найдена запись содержащая указанные данные о заказе, номенклатуре и операции.';
 			end if;
 				
-			if (_operation_count + _op_complete <= _op_count) then
-				_op_complete = _op_complete + _operation_count;
-				_operation_count = 0;
+			if (rec_oe.operation_count + rec_exec.completed <= rec_exec.operation_count) then
+				rec_exec.completed = rec_exec.completed + rec_oe.operation_count;
+				rec_oe.operation_count = 0;
 			else
-				_operation_count = _operation_count - (_op_count - _op_complete);
-				_op_complete = _op_count;
+				rec_oe.operation_count = rec_oe.operation_count - (rec_exec.operation_count - rec_exec.completed);
+				rec_exec.completed = rec_exec.operation_count;
 			end if;
 		
 			update operation_execute
-				set completed = _op_complete
-				where id = _op;
+				set completed = rec_exec.completed
+				where id = rec_exec.id;
 			
-			if (_op_complete = _op_count) then
-				perform change_status(_op, 1016, true, 'Выполнены все операции');
+			update document
+				set owner_id = rec_exec.id
+				where id = document_id;
+			
+			if (rec_exec.completed = rec_exec.operation_count) then
+				perform change_status(rec_exec.id, 1016, true, 'Выполнены все операции');
+			end if;
+		
+			select sum(gio.goods_count)::numeric(12, 3) * op_count
+				into goods_count
+				from goods_in_operation gio 
+					join item_operation io on (io.id = gio.item_operation_id) 
+					join directory calc on (calc.id = io.id) 
+					join directory g on (g.id = calc.owner_id) 
+				where 
+					g.owner_id = rec_oe.goods_id and 
+					gio.goods_id = rec_oe.using_goods_id;
+			
+			goods_count = coalesce(goods_count, 0);
+			if (goods_count > 0) then
+				remainder = get_goods_remainder(rec_oe.using_goods_id, rec_oe.doc_date::date);
+				if (remainder < goods_count) then
+					raise 'Требуется материал % в количестве %. В наличии имеется - %.', 
+						(select name from directory where id = rec_oe.using_goods_id),
+						goods_count,
+						remainder;
+				end if;
+			
+				perform insert_movement_goods(document_id, rec_oe.using_goods_id, -goods_count);
 			end if;
 		end loop;
 	
-		if (_operation_count > 0) then
+		if (rec_oe.operation_count > 0) then
 			raise 'Невозможно распределить указанное количество операций. Оно слишком большое!';
 		end if;	
 	end if;
@@ -1490,7 +1978,7 @@ $$;
 ALTER FUNCTION public.complete_operation_executor(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 270 (class 1255 OID 103484)
+-- TOC entry 288 (class 1255 OID 103484)
 -- Name: complete_order(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1528,7 +2016,7 @@ $$;
 ALTER FUNCTION public.complete_order(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 300 (class 1255 OID 103520)
+-- TOC entry 322 (class 1255 OID 103520)
 -- Name: complete_order_complete(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1604,7 +2092,7 @@ $$;
 ALTER FUNCTION public.complete_order_complete(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 313 (class 1255 OID 119713)
+-- TOC entry 336 (class 1255 OID 119713)
 -- Name: complete_order_shipped(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1677,7 +2165,7 @@ $$;
 ALTER FUNCTION public.complete_order_shipped(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 271 (class 1255 OID 103318)
+-- TOC entry 289 (class 1255 OID 103318)
 -- Name: complete_request(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1688,6 +2176,7 @@ declare
 	cost_sum money;
 	tax_value_sum money;
 	cost_with_tax_sum money;
+	r record;
 begin
 	-- СОСТАВЛЕН, ИЗМЕНЯЕТСЯ => КОРРЕКТЕН
 	if (status_from in (1000, 1004) and status_to = 1001) then
@@ -1708,6 +2197,53 @@ begin
 			set sending_date = current_timestamp
 			where id = document_id;
 	end if;
+
+	-- ОТПРАВЛЕН или СЧЁТ ОПЛАЧЕН => МАТЕРИАЛ ПОЛУЧЕН
+	if (status_from in (1007, 1009) and status_to = 1010) then
+		for r in 
+			select rd.goods_id, rd.goods_count, req.contractor_id, ad.id as accounting_id
+				from accounting_document ad
+					left join accounting_type_doc atd on (atd.id = ad.doc_type_id)
+					join document d on (d.id = ad.id)
+					join document ro on (ro.id = d.owner_id)
+					join request_detail rd on (rd.owner_id = ro.id)
+					join request req on (req.id = ro.id)
+				where 
+					ro.id = document_id and
+					ad.doc_type_id = 'aa5833ae-24ff-4b58-86e7-7c8dfc2a199c' and
+					d.status_id in (1001, 1020)
+		loop
+			perform insert_movement_goods(document_id, r.goods_id, r.goods_count, r.accounting_id, r.contractor_id);
+		end loop;
+	end if;
+
+	-- из любово состояния => ОТМЕНЁН
+	if (status_to = 1011) then
+		for r in
+			select ad.id 
+				from accounting_document ad
+					join document d on (d.id = ad.id)
+					join document req on (req.id = d.owner_id)
+				where
+					req.id = document_id
+		loop
+			perform change_status(r.id, 1011, true, 'Отмена заказа');
+		end loop;
+	end if;
+
+	-- из любово состояния => ЗАКРЫТ
+	if (status_to = 1020) then
+		for r in
+			select ad.id 
+				from accounting_document ad
+					join document d on (d.id = ad.id)
+					join document req on (req.id = d.owner_id)
+				where
+					req.id = document_id and d.status_id != 1011
+		loop
+			perform change_status(r.id, 1020, true, 'Закрытие заказа');
+		end loop;
+	end if;
 end;
 $$;
 
@@ -1715,7 +2251,7 @@ $$;
 ALTER FUNCTION public.complete_request(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 277 (class 1255 OID 78158)
+-- TOC entry 296 (class 1255 OID 78158)
 -- Name: contractor_initialize(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1735,7 +2271,7 @@ $$;
 ALTER FUNCTION public.contractor_initialize() OWNER TO postgres;
 
 --
--- TOC entry 308 (class 1255 OID 78163)
+-- TOC entry 331 (class 1255 OID 78163)
 -- Name: contractor_test_inn(numeric); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1770,7 +2306,7 @@ $$;
 ALTER FUNCTION public.contractor_test_inn(inn numeric) OWNER TO postgres;
 
 --
--- TOC entry 324 (class 1255 OID 78164)
+-- TOC entry 347 (class 1255 OID 78164)
 -- Name: contractor_test_okpo(numeric); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1801,7 +2337,7 @@ $$;
 ALTER FUNCTION public.contractor_test_okpo(okpo numeric) OWNER TO postgres;
 
 --
--- TOC entry 266 (class 1255 OID 78161)
+-- TOC entry 283 (class 1255 OID 78161)
 -- Name: control_sum(integer[], integer[]); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1827,7 +2363,7 @@ $$;
 ALTER FUNCTION public.control_sum(source integer[], coeff integer[]) OWNER TO postgres;
 
 --
--- TOC entry 253 (class 1255 OID 78162)
+-- TOC entry 267 (class 1255 OID 78162)
 -- Name: control_value(integer[], integer[], integer, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1850,7 +2386,7 @@ $$;
 ALTER FUNCTION public.control_value(source integer[], coeff integer[], divider integer, test10 boolean) OWNER TO postgres;
 
 --
--- TOC entry 314 (class 1255 OID 78076)
+-- TOC entry 337 (class 1255 OID 78076)
 -- Name: document_checking(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1858,109 +2394,109 @@ CREATE FUNCTION public.document_checking() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  current_type character varying(20);
-  is_valid boolean;
-  changing_id uuid;
-  parent_code character varying(20);
-  parent_name character varying(255);
-  parent_status bigint;
-  ref_id uuid;
-  status_from bigint; 
-  status_to bigint;
+	current_type character varying(20);
+	is_valid boolean;
+	changing_id uuid;
+	parent_code character varying(20);
+	parent_name character varying(255);
+	parent_status bigint;
+	ref_id uuid;
+	status_from bigint; 
+	status_to bigint;
 begin
-  select e.code into current_type 
-    from kind k
-      join kind_enum e on (e.id = k.enum_id)
-    where k.id = new.kind_id;
+	select e.code 
+		into current_type 
+		from kind k
+			join kind_enum e on (e.id = k.enum_id)
+		where k.id = new.kind_id;
+
+	case
+		when tg_table_name = 'directory' then
+			is_valid = current_type = 'directory';
+		when tg_table_name = 'document' then
+			is_valid = current_type = 'document';
+		else
+			is_valid = false;
+	end case;
+
+	if (not is_valid) then
+		raise 'Неверный тип добавляемого документа/справочника.';
+	end if;
+
+	if tg_op = 'UPDATE' then
+		-- проверим право пользователя менять состояние документа
+		if (new.status_id != old.status_id) then
+			select c.id 
+				into changing_id 
+				from kind k
+					join transition t on (k.transition_id = t.id)
+					join changing_status c on (c.transition_id = t.id)
+				where
+					k.id = new.kind_id and
+					old.status_id in (0, c.status_from_id) and
+					c.status_to_id = new.status_id;
+
+			if changing_id is null then
+				raise 'Переход документа "%" из состояния "%" в состояние "%" невозможен.',
+					current_type,
+					(select note from status where id = old.status_id),
+					(select note from status where id = new.status_id);
+			end if;
+
+			-- изменение состояния возможно только с помощью процедуры change_status,
+			-- в которой создаётся запись в таблице истории
+			if (old.status_id != 0) then
+				select status_from_id, status_to_id, reference_id
+					into status_from, status_to, ref_id
+					from history
+					where id = new.history_id;
+
+				ref_id = coalesce(ref_id, uuid_nil());
+				if (new.id != ref_id) then
+					raise 'Некорректное значение справочника в истории переводов';
+				end if;
+
+				status_from = coalesce(status_from, 0);
+				status_to = coalesce(status_to, 0);
+				if (old.status_id != status_from) or (new.status_id != status_to) then
+					raise 'Для корректного перевода воспользуйтесь процедурой change_status()';
+				end if;
+			end if;
+		end if;
     
-  case
-    when tg_table_name = 'directory' then
-      is_valid = current_type = 'directory';
-    when tg_table_name = 'document' then
-      is_valid = current_type = 'document';
-    else
-      is_valid = false;
-  end case;
+		if new.kind_id != old.kind_id then
+			raise 'Тип документа менять нельзя.';
+		end if;
 
-  if not is_valid then
-    raise 'Неверный тип добавляемого документа/справочника.';
-  end if;
-
-  if tg_op = 'UPDATE' then
-    -- проверим право пользователя менять состояние документа
-    if new.status_id != old.status_id then
-      select c.id 
-        into changing_id 
-        from kind k
-          join transition t on (k.transition_id = t.id)
-          join changing_status c on (c.transition_id = t.id)
-        where
-          k.id = new.kind_id and
-          old.status_id in (0, c.status_from_id) and
-          c.status_to_id = new.status_id;
-          
-      if changing_id is null then
-        raise 'Переход документа из состояния "%" в состояние "%" невозможен.',
-          (select note from status where id = old.status_id),
-          (select note from status where id = new.status_id);
-      end if;
-      
-      -- изменение состояния возможно только с помощью процедуры change_status,
-      -- в которой создаётся запись в таблице истории
-      if old.status_id != 0 then
-        select status_from_id, 
-               status_to_id, 
-               reference_id
-          into status_from, status_to, ref_id
-          from history
-          where id = new.history_id;
-
-        ref_id = coalesce(ref_id, uuid_nil());
-        if (new.id != ref_id) then
-          raise 'Некорректное значение справочника в истории переводов';
-        end if;
-
-        status_from = coalesce(status_from, 0);
-        status_to = coalesce(status_to, 0);
-        if (old.status_id != status_from) or (new.status_id != status_to) then
-          raise 'Для корректного перевода воспользуйтесь процедурой change_status()';
-        end if;
-      end if;
-    end if;
-    
-    if new.kind_id != old.kind_id then
-      raise 'Тип документа менять нельзя.';
-    end if;
-    
-    if tg_table_name = 'directory' then
-      if new.code != old.code and left(new.code, char_length(new.discriminator)) = new.discriminator then
-        raise 'Значение поля "Код" начинающееся с "%" является зарезервированным', new.discriminator;
-      end if;
-    end if;
-  end if;
+		if tg_table_name = 'directory' then
+			if new.code != old.code and left(new.code, char_length(new.discriminator)) = new.discriminator then
+				raise 'Значение поля "Код" начинающееся с "%" является зарезервированным', new.discriminator;
+			end if;
+		end if;
+	end if;
   
-  if tg_op = 'INSERT' then
-  end if;
+	if tg_op = 'INSERT' then
+	end if;
   
-  if tg_table_name = 'directory' then
-    if new.parent_id is not null then
-      select code, name, status_id
-        into parent_code, parent_name, parent_status
-        from directory
-        where id = new.parent_id;
+	if tg_table_name = 'directory' then
+		if new.parent_id is not null then
+			select code, name, status_id
+				into parent_code, parent_name, parent_status
+				from directory
+				where id = new.parent_id;
 
-      if parent_status != 500 then
-        parent_name = coalesce(parent_name, '');
-        if parent_name = '' then
-          parent_name = parent_code;
-        end if;
+			if parent_status != 500 then
+				parent_name = coalesce(parent_name, '');
+				if parent_name = '' then
+					parent_name = parent_code;
+				end if;
 
-        raise 'Запись справочника "%" не является группой.', parent_name;
-      end if;
-    end if;
-  end if;
+				raise 'Запись справочника "%" не является группой.', parent_name;
+			end if;
+		end if;
+	end if;
 
-  return new;
+	return new;
 end;
 $$;
 
@@ -1968,7 +2504,7 @@ $$;
 ALTER FUNCTION public.document_checking() OWNER TO postgres;
 
 --
--- TOC entry 275 (class 1255 OID 77987)
+-- TOC entry 294 (class 1255 OID 77987)
 -- Name: document_initialize(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1976,61 +2512,62 @@ CREATE FUNCTION public.document_initialize() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare
-  user_id uuid;
-  new_status bigint;
-  dir_has_group boolean;
-  discriminator character varying(20);
-  doc_prefix character varying(5);
-  doc_digits integer;
+	user_id uuid;
+	new_status bigint;
+	dir_has_group boolean;
+	discriminator character varying(20);
+	doc_prefix character varying(5);
+	doc_digits integer;
 begin
-  select id into user_id from user_alias where pg_name = session_user;
+	select id into user_id from user_alias where pg_name = session_user;
 
-  new.user_created_id = user_id;
-  new.date_created = current_timestamp;
+	new.user_created_id = user_id;
+	new.date_created = current_timestamp;
 
-  new.user_updated_id = user_id;
-  new.date_updated = current_timestamp;
+	new.user_updated_id = user_id;
+	new.date_updated = current_timestamp;
    
-  -- стартовое значение состояния документа указанное в new.kind_id
-  select t.starting_status_id, k.has_group, k.prefix, k.number_digits
-    into new_status, dir_has_group, doc_prefix, doc_digits
-    from kind k
-      join transition t on (t.id = k.transition_id)
-    where k.id = new.kind_id;
+	-- стартовое значение состояния документа указанное в new.kind_id
+	select t.starting_status_id, k.has_group, k.prefix, k.number_digits
+		into new_status, dir_has_group, doc_prefix, doc_digits
+		from kind k
+			join transition t on (t.id = k.transition_id)
+		where k.id = new.kind_id;
+
+	if (new.status_id is null or new.status_id != 500 or not dir_has_group) then
+		new.status_id = new_status;
+	end if;
+
+	select code 
+		into new.discriminator 
+		from kind 
+		where id = new.kind_id;
     
-  if new.status_id is null or new.status_id != 500 or not dir_has_group then
-    new.status_id = new_status;
-  end if;
-  
-  select code 
-    into new.discriminator 
-    from kind 
-    where id = new.kind_id;
-    
-  if (tg_table_name = 'directory') then
-    if new.code is null then
-      new.code = new.discriminator || '_' || nextval('directory_code_seq');
-    end if;
-  end if;
-  
-  if (tg_table_name = 'document') then
-    new.doc_date = current_timestamp;
-    new.doc_year = extract(year from new.doc_date);
-    select max(doc_number) + 1 into new.doc_number from document where kind_id = new.kind_id and doc_year = new.doc_year;
-    
-    new.doc_number = coalesce(new.doc_number, 1);
-    doc_digits = coalesce(doc_digits, 0);
-    doc_prefix = coalesce(doc_prefix, '');
-    if (doc_digits = 0) then
-      new.view_number = doc_prefix || new.doc_number;
-    else
-      new.view_number = doc_prefix || lpad(new.doc_number::varchar, doc_digits, '0');
-    end if;
-   
-	select id into new.organization_id from organization where default_org = true limit 1;
-  end if;
-    
-  return new;
+	if (tg_table_name = 'directory') then
+		new.code = coalesce(new.code, '');
+		if (new.code = '') then
+			new.code = new.discriminator || '_' || nextval('directory_code_seq');
+		end if;
+	end if;
+
+	if (tg_table_name = 'document') then
+		new.doc_date = current_timestamp;
+		new.doc_year = extract(year from new.doc_date);
+		select max(doc_number) + 1 into new.doc_number from document where kind_id = new.kind_id and doc_year = new.doc_year;
+
+		new.doc_number = coalesce(new.doc_number, 1);
+		doc_digits = coalesce(doc_digits, 0);
+		doc_prefix = coalesce(doc_prefix, '');
+		if (doc_digits = 0) then
+			new.view_number = doc_prefix || new.doc_number;
+		else
+			new.view_number = doc_prefix || lpad(new.doc_number::varchar, doc_digits, '0');
+		end if;
+
+		select id into new.organization_id from organization where default_org = true limit 1;
+	end if;
+
+	return new;
 end;
 $$;
 
@@ -2038,7 +2575,7 @@ $$;
 ALTER FUNCTION public.document_initialize() OWNER TO postgres;
 
 --
--- TOC entry 295 (class 1255 OID 78187)
+-- TOC entry 316 (class 1255 OID 78187)
 -- Name: document_updated(uuid, bigint, bigint, boolean); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2094,6 +2631,14 @@ begin
 		-- Выполненные операции
 		when get_uuid('operation_executor') then
 			perform complete_operation_executor(document_id, status_from, status_to, auto);
+		
+		-- документы от поставщика
+		when get_uuid('accounting_document') then
+			perform complete_accounting_document(document_id, status_from, status_to, auto);
+		
+		-- инвентаризация
+		when get_uuid('inventory') then
+			perform complete_inventory(document_id, status_from, status_to, auto);
         
         else
         	-- nothing
@@ -2105,7 +2650,7 @@ $$;
 ALTER FUNCTION public.document_updated(document_id uuid, status_from bigint, status_to bigint, auto boolean) OWNER TO postgres;
 
 --
--- TOC entry 327 (class 1255 OID 77991)
+-- TOC entry 350 (class 1255 OID 77991)
 -- Name: document_updating(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2126,7 +2671,7 @@ $$;
 ALTER FUNCTION public.document_updating() OWNER TO postgres;
 
 --
--- TOC entry 297 (class 1255 OID 119749)
+-- TOC entry 319 (class 1255 OID 119749)
 -- Name: fill_operation_execute(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2161,7 +2706,27 @@ $$;
 ALTER FUNCTION public.fill_operation_execute(order_complete_id uuid) OWNER TO postgres;
 
 --
--- TOC entry 317 (class 1255 OID 119756)
+-- TOC entry 303 (class 1255 OID 144762)
+-- Name: get_goods_remainder(uuid, date); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.get_goods_remainder(goods_id uuid, actual_date date) RETURNS numeric
+    LANGUAGE sql
+    AS $$
+	select sum(mg.goods_count)
+		from movement_goods mg
+			join directory d on (mg.id = d.id)
+			join document doc on (doc.id = mg.source_doc_id)
+		where
+			d.owner_id = goods_id and
+			doc.doc_date::date <= actual_date
+$$;
+
+
+ALTER FUNCTION public.get_goods_remainder(goods_id uuid, actual_date date) OWNER TO postgres;
+
+--
+-- TOC entry 340 (class 1255 OID 119756)
 -- Name: get_operations(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2205,8 +2770,8 @@ $$;
 ALTER FUNCTION public.get_operations(calculation_id uuid) OWNER TO postgres;
 
 --
--- TOC entry 3349 (class 0 OID 0)
--- Dependencies: 317
+-- TOC entry 3459 (class 0 OID 0)
+-- Dependencies: 340
 -- Name: FUNCTION get_operations(calculation_id uuid); Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -2214,7 +2779,7 @@ COMMENT ON FUNCTION public.get_operations(calculation_id uuid) IS 'Список 
 
 
 --
--- TOC entry 265 (class 1255 OID 103225)
+-- TOC entry 282 (class 1255 OID 103225)
 -- Name: get_sum_item_goods(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2250,8 +2815,8 @@ $$;
 ALTER FUNCTION public.get_sum_item_goods(g_id uuid) OWNER TO postgres;
 
 --
--- TOC entry 3350 (class 0 OID 0)
--- Dependencies: 265
+-- TOC entry 3460 (class 0 OID 0)
+-- Dependencies: 282
 -- Name: FUNCTION get_sum_item_goods(g_id uuid); Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -2259,7 +2824,7 @@ COMMENT ON FUNCTION public.get_sum_item_goods(g_id uuid) IS 'Вычислени�
 
 
 --
--- TOC entry 280 (class 1255 OID 103227)
+-- TOC entry 299 (class 1255 OID 103227)
 -- Name: get_sum_item_operation(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2296,8 +2861,8 @@ $$;
 ALTER FUNCTION public.get_sum_item_operation(g_id uuid) OWNER TO postgres;
 
 --
--- TOC entry 3351 (class 0 OID 0)
--- Dependencies: 280
+-- TOC entry 3461 (class 0 OID 0)
+-- Dependencies: 299
 -- Name: FUNCTION get_sum_item_operation(g_id uuid); Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -2305,7 +2870,7 @@ COMMENT ON FUNCTION public.get_sum_item_operation(g_id uuid) IS 'Вычисле�
 
 
 --
--- TOC entry 290 (class 1255 OID 103014)
+-- TOC entry 310 (class 1255 OID 103014)
 -- Name: get_uuid(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2319,7 +2884,7 @@ $$;
 ALTER FUNCTION public.get_uuid(kind_name character varying) OWNER TO postgres;
 
 --
--- TOC entry 315 (class 1255 OID 78045)
+-- TOC entry 338 (class 1255 OID 78045)
 -- Name: history_initialize(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2336,7 +2901,47 @@ $$;
 ALTER FUNCTION public.history_initialize() OWNER TO postgres;
 
 --
--- TOC entry 293 (class 1255 OID 94706)
+-- TOC entry 326 (class 1255 OID 144803)
+-- Name: insert_movement_goods(uuid, uuid, numeric); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.insert_movement_goods(document_id uuid, gds_id uuid, gds_count numeric) RETURNS void
+    LANGUAGE sql
+    AS $$
+with rows as
+(
+	insert into directory (owner_id, kind_id)
+		values (gds_id, get_uuid('movement_goods')) returning id
+)
+insert into movement_goods (id, source_doc_id, goods_count)
+	values ((select id from rows), document_id, gds_count);
+$$;
+
+
+ALTER FUNCTION public.insert_movement_goods(document_id uuid, gds_id uuid, gds_count numeric) OWNER TO postgres;
+
+--
+-- TOC entry 351 (class 1255 OID 144804)
+-- Name: insert_movement_goods(uuid, uuid, numeric, uuid, uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.insert_movement_goods(document_id uuid, gds_id uuid, gds_count numeric, accounting_id uuid, cntr_id uuid) RETURNS void
+    LANGUAGE sql
+    AS $$
+with rows as
+(
+	insert into directory (owner_id, kind_id)
+		values (gds_id, get_uuid('movement_goods')) returning id
+)
+insert into movement_goods (id, source_doc_id, goods_count, accounting_doc_id, contractor_id)
+	values ((select id from rows), document_id, gds_count, accounting_id, cntr_id);
+$$;
+
+
+ALTER FUNCTION public.insert_movement_goods(document_id uuid, gds_id uuid, gds_count numeric, accounting_id uuid, cntr_id uuid) OWNER TO postgres;
+
+--
+-- TOC entry 314 (class 1255 OID 94706)
 -- Name: lock_document(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2355,7 +2960,7 @@ $$;
 ALTER FUNCTION public.lock_document(document_id uuid) OWNER TO postgres;
 
 --
--- TOC entry 251 (class 1255 OID 78097)
+-- TOC entry 265 (class 1255 OID 78097)
 -- Name: login(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2371,7 +2976,7 @@ $$;
 ALTER FUNCTION public.login() OWNER TO postgres;
 
 --
--- TOC entry 260 (class 1255 OID 78098)
+-- TOC entry 275 (class 1255 OID 78098)
 -- Name: logout(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2386,7 +2991,7 @@ $$;
 ALTER FUNCTION public.logout() OWNER TO postgres;
 
 --
--- TOC entry 328 (class 1255 OID 78160)
+-- TOC entry 352 (class 1255 OID 78160)
 -- Name: min_int(integer, integer); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2410,7 +3015,44 @@ $$;
 ALTER FUNCTION public.min_int(left_value integer, right_value integer) OWNER TO postgres;
 
 --
--- TOC entry 318 (class 1255 OID 136140)
+-- TOC entry 279 (class 1255 OID 144766)
+-- Name: set_base_calculation(uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.set_base_calculation(calc_id uuid) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare
+	goods_id uuid;
+	base_id uuid;
+begin
+	select d.owner_id
+		into goods_id
+		from calculation c
+			join directory d on (d.id = c.id)
+		where c.id = calc_id;
+		
+	select c.id
+		into base_id
+		from calculation c
+			join directory d on (d.id = c.id)
+		where
+			c.base_calculation and
+			d.owner_id = goods_id;
+		
+	if (base_id is not null and base_id != calc_id) then
+		update calculation set base_calculation = false where id = base_id;
+	end if;
+		
+	update calculation set base_calculation = true where id = calc_id;
+end;
+$$;
+
+
+ALTER FUNCTION public.set_base_calculation(calc_id uuid) OWNER TO postgres;
+
+--
+-- TOC entry 341 (class 1255 OID 136140)
 -- Name: status_code(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2424,7 +3066,7 @@ $$;
 ALTER FUNCTION public.status_code(code_value character varying) OWNER TO postgres;
 
 --
--- TOC entry 267 (class 1255 OID 94707)
+-- TOC entry 284 (class 1255 OID 94707)
 -- Name: unlock_document(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2444,8 +3086,6 @@ ALTER FUNCTION public.unlock_document(document_id uuid) OWNER TO postgres;
 
 SET default_tablespace = '';
 
-SET default_with_oids = false;
-
 --
 -- TOC entry 217 (class 1259 OID 78299)
 -- Name: account; Type: TABLE; Schema: public; Owner: postgres
@@ -2461,13 +3101,118 @@ CREATE TABLE public.account (
 ALTER TABLE public.account OWNER TO postgres;
 
 --
--- TOC entry 3352 (class 0 OID 0)
+-- TOC entry 3462 (class 0 OID 0)
 -- Dependencies: 217
 -- Name: TABLE account; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON TABLE public.account IS 'Расчётные счета';
 
+
+--
+-- TOC entry 254 (class 1259 OID 144655)
+-- Name: goods_detail; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.goods_detail (
+    id bigint NOT NULL,
+    owner_id uuid NOT NULL,
+    goods_id uuid,
+    goods_count numeric(12,3),
+    price money,
+    cost money,
+    tax public.tax_nds,
+    tax_value money,
+    cost_with_tax money
+);
+
+
+ALTER TABLE public.goods_detail OWNER TO postgres;
+
+--
+-- TOC entry 3464 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: COLUMN goods_detail.price; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.goods_detail.price IS 'Цена без НДС';
+
+
+--
+-- TOC entry 3465 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: COLUMN goods_detail.cost; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.goods_detail.cost IS 'Стоимость товара без НДС';
+
+
+--
+-- TOC entry 3466 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: COLUMN goods_detail.tax; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.goods_detail.tax IS 'Ставка НДС';
+
+
+--
+-- TOC entry 3467 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: COLUMN goods_detail.tax_value; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.goods_detail.tax_value IS 'Сумма НДС';
+
+
+--
+-- TOC entry 3468 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: COLUMN goods_detail.cost_with_tax; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.goods_detail.cost_with_tax IS 'Всего с НДС';
+
+
+--
+-- TOC entry 257 (class 1259 OID 144693)
+-- Name: accounting_detail; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.accounting_detail (
+)
+INHERITS (public.goods_detail);
+
+
+ALTER TABLE public.accounting_detail OWNER TO postgres;
+
+--
+-- TOC entry 249 (class 1259 OID 144546)
+-- Name: accounting_document; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.accounting_document (
+    id uuid NOT NULL,
+    doc_number character varying(20),
+    doc_date timestamp(0) with time zone,
+    doc_type_id uuid
+);
+
+
+ALTER TABLE public.accounting_document OWNER TO postgres;
+
+--
+-- TOC entry 252 (class 1259 OID 144613)
+-- Name: accounting_type_doc; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.accounting_type_doc (
+    id uuid NOT NULL,
+    need_goods_detail boolean
+);
+
+
+ALTER TABLE public.accounting_type_doc OWNER TO postgres;
 
 --
 -- TOC entry 213 (class 1259 OID 78206)
@@ -2484,7 +3229,7 @@ CREATE TABLE public.bank (
 ALTER TABLE public.bank OWNER TO postgres;
 
 --
--- TOC entry 3354 (class 0 OID 0)
+-- TOC entry 3473 (class 0 OID 0)
 -- Dependencies: 213
 -- Name: TABLE bank; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2512,7 +3257,7 @@ CREATE TABLE public.calculation (
 ALTER TABLE public.calculation OWNER TO postgres;
 
 --
--- TOC entry 3356 (class 0 OID 0)
+-- TOC entry 3475 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: TABLE calculation; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2521,7 +3266,7 @@ COMMENT ON TABLE public.calculation IS 'Калькуляции';
 
 
 --
--- TOC entry 3357 (class 0 OID 0)
+-- TOC entry 3476 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.cost; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2530,7 +3275,7 @@ COMMENT ON COLUMN public.calculation.cost IS 'Себестоимость';
 
 
 --
--- TOC entry 3358 (class 0 OID 0)
+-- TOC entry 3477 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.profit_percent; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2539,7 +3284,7 @@ COMMENT ON COLUMN public.calculation.profit_percent IS 'Прибыль (проц
 
 
 --
--- TOC entry 3359 (class 0 OID 0)
+-- TOC entry 3478 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.profit_value; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2548,7 +3293,7 @@ COMMENT ON COLUMN public.calculation.profit_value IS 'Прибыль';
 
 
 --
--- TOC entry 3360 (class 0 OID 0)
+-- TOC entry 3479 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2557,7 +3302,7 @@ COMMENT ON COLUMN public.calculation.price IS 'Цена';
 
 
 --
--- TOC entry 3361 (class 0 OID 0)
+-- TOC entry 3480 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.note; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2566,7 +3311,7 @@ COMMENT ON COLUMN public.calculation.note IS 'Описание';
 
 
 --
--- TOC entry 3362 (class 0 OID 0)
+-- TOC entry 3481 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: COLUMN calculation.base_calculation; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2575,7 +3320,7 @@ COMMENT ON COLUMN public.calculation.base_calculation IS 'Основная ка�
 
 
 --
--- TOC entry 249 (class 1259 OID 136130)
+-- TOC entry 245 (class 1259 OID 136130)
 -- Name: calendar; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2638,7 +3383,7 @@ CREATE TABLE public.condition (
 ALTER TABLE public.condition OWNER TO postgres;
 
 --
--- TOC entry 3366 (class 0 OID 0)
+-- TOC entry 3486 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: COLUMN condition.confirmation; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2647,7 +3392,7 @@ COMMENT ON COLUMN public.condition.confirmation IS 'Для перевода не
 
 
 --
--- TOC entry 3367 (class 0 OID 0)
+-- TOC entry 3487 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: COLUMN condition.empty_note; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2670,14 +3415,16 @@ CREATE TABLE public.contractor (
     okpo numeric(8,0),
     okopf_id uuid,
     account_id uuid,
-    tax_payer boolean
+    tax_payer boolean,
+    supplier boolean DEFAULT false,
+    buyer boolean DEFAULT false
 );
 
 
 ALTER TABLE public.contractor OWNER TO postgres;
 
 --
--- TOC entry 3369 (class 0 OID 0)
+-- TOC entry 3489 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: TABLE contractor; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2686,7 +3433,7 @@ COMMENT ON TABLE public.contractor IS 'Контрагенты';
 
 
 --
--- TOC entry 3370 (class 0 OID 0)
+-- TOC entry 3490 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.short_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2695,7 +3442,7 @@ COMMENT ON COLUMN public.contractor.short_name IS 'Краткое наимено
 
 
 --
--- TOC entry 3371 (class 0 OID 0)
+-- TOC entry 3491 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.full_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2704,7 +3451,7 @@ COMMENT ON COLUMN public.contractor.full_name IS 'Полное наименов�
 
 
 --
--- TOC entry 3372 (class 0 OID 0)
+-- TOC entry 3492 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.inn; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2713,7 +3460,7 @@ COMMENT ON COLUMN public.contractor.inn IS 'Индивидуальный ном�
 
 
 --
--- TOC entry 3373 (class 0 OID 0)
+-- TOC entry 3493 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.kpp; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2722,7 +3469,7 @@ COMMENT ON COLUMN public.contractor.kpp IS 'Код причины постано
 
 
 --
--- TOC entry 3374 (class 0 OID 0)
+-- TOC entry 3494 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.ogrn; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2731,7 +3478,7 @@ COMMENT ON COLUMN public.contractor.ogrn IS 'Основной государст
 
 
 --
--- TOC entry 3375 (class 0 OID 0)
+-- TOC entry 3495 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.okpo; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2740,12 +3487,30 @@ COMMENT ON COLUMN public.contractor.okpo IS 'Общероссийский кла
 
 
 --
--- TOC entry 3376 (class 0 OID 0)
+-- TOC entry 3496 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: COLUMN contractor.tax_payer; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.contractor.tax_payer IS 'Является плательщиком НДС';
+
+
+--
+-- TOC entry 3497 (class 0 OID 0)
+-- Dependencies: 210
+-- Name: COLUMN contractor.supplier; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.contractor.supplier IS 'Поставщик';
+
+
+--
+-- TOC entry 3498 (class 0 OID 0)
+-- Dependencies: 210
+-- Name: COLUMN contractor.buyer; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.contractor.buyer IS 'Покупатель';
 
 
 --
@@ -2765,7 +3530,7 @@ CREATE TABLE public.deduction (
 ALTER TABLE public.deduction OWNER TO postgres;
 
 --
--- TOC entry 3378 (class 0 OID 0)
+-- TOC entry 3500 (class 0 OID 0)
 -- Dependencies: 228
 -- Name: TABLE deduction; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2774,7 +3539,7 @@ COMMENT ON TABLE public.deduction IS 'Список начислений выра
 
 
 --
--- TOC entry 3379 (class 0 OID 0)
+-- TOC entry 3501 (class 0 OID 0)
 -- Dependencies: 228
 -- Name: COLUMN deduction.accrual_base; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2806,7 +3571,7 @@ CREATE TABLE public.document_info (
 ALTER TABLE public.document_info OWNER TO postgres;
 
 --
--- TOC entry 3381 (class 0 OID 0)
+-- TOC entry 3503 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.status_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2815,7 +3580,7 @@ COMMENT ON COLUMN public.document_info.status_id IS 'Текущее состоя
 
 
 --
--- TOC entry 3382 (class 0 OID 0)
+-- TOC entry 3504 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.owner_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2824,7 +3589,7 @@ COMMENT ON COLUMN public.document_info.owner_id IS 'Владелец текущ�
 
 
 --
--- TOC entry 3383 (class 0 OID 0)
+-- TOC entry 3505 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.kind_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2833,7 +3598,7 @@ COMMENT ON COLUMN public.document_info.kind_id IS 'Ссылка на описа�
 
 
 --
--- TOC entry 3384 (class 0 OID 0)
+-- TOC entry 3506 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.user_created_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2842,7 +3607,7 @@ COMMENT ON COLUMN public.document_info.user_created_id IS 'Пользовате�
 
 
 --
--- TOC entry 3385 (class 0 OID 0)
+-- TOC entry 3507 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.date_created; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2851,7 +3616,7 @@ COMMENT ON COLUMN public.document_info.date_created IS 'Дата создани�
 
 
 --
--- TOC entry 3386 (class 0 OID 0)
+-- TOC entry 3508 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.user_updated_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2860,7 +3625,7 @@ COMMENT ON COLUMN public.document_info.user_updated_id IS 'Пользовате�
 
 
 --
--- TOC entry 3387 (class 0 OID 0)
+-- TOC entry 3509 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.date_updated; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2869,7 +3634,7 @@ COMMENT ON COLUMN public.document_info.date_updated IS 'Дата изменен�
 
 
 --
--- TOC entry 3388 (class 0 OID 0)
+-- TOC entry 3510 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.user_locked_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2878,7 +3643,7 @@ COMMENT ON COLUMN public.document_info.user_locked_id IS 'Пользовател
 
 
 --
--- TOC entry 3389 (class 0 OID 0)
+-- TOC entry 3511 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: COLUMN document_info.date_locked; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -2935,7 +3700,7 @@ INHERITS (public.document_info);
 ALTER TABLE public.document OWNER TO postgres;
 
 --
--- TOC entry 247 (class 1259 OID 136092)
+-- TOC entry 243 (class 1259 OID 136092)
 -- Name: document_refs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2952,7 +3717,7 @@ CREATE TABLE public.document_refs (
 ALTER TABLE public.document_refs OWNER TO postgres;
 
 --
--- TOC entry 246 (class 1259 OID 136090)
+-- TOC entry 242 (class 1259 OID 136090)
 -- Name: document_refs_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -2967,8 +3732,8 @@ CREATE SEQUENCE public.document_refs_id_seq
 ALTER TABLE public.document_refs_id_seq OWNER TO postgres;
 
 --
--- TOC entry 3395 (class 0 OID 0)
--- Dependencies: 246
+-- TOC entry 3517 (class 0 OID 0)
+-- Dependencies: 242
 -- Name: document_refs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
@@ -2976,7 +3741,49 @@ ALTER SEQUENCE public.document_refs_id_seq OWNED BY public.document_refs.id;
 
 
 --
--- TOC entry 235 (class 1259 OID 103336)
+-- TOC entry 248 (class 1259 OID 144530)
+-- Name: email; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.email (
+    id bigint NOT NULL,
+    address character varying(250) NOT NULL,
+    host character varying(150) NOT NULL,
+    port integer NOT NULL,
+    password character varying(20),
+    signature_plain text,
+    signature_html text
+);
+
+
+ALTER TABLE public.email OWNER TO postgres;
+
+--
+-- TOC entry 247 (class 1259 OID 144528)
+-- Name: email_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.email_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.email_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3520 (class 0 OID 0)
+-- Dependencies: 247
+-- Name: email_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.email_id_seq OWNED BY public.email.id;
+
+
+--
+-- TOC entry 233 (class 1259 OID 103336)
 -- Name: employee; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2994,8 +3801,8 @@ CREATE TABLE public.employee (
 ALTER TABLE public.employee OWNER TO postgres;
 
 --
--- TOC entry 3397 (class 0 OID 0)
--- Dependencies: 235
+-- TOC entry 3522 (class 0 OID 0)
+-- Dependencies: 233
 -- Name: CONSTRAINT chk_employee_post_role ON employee; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3007,7 +3814,7 @@ COMMENT ON CONSTRAINT chk_employee_post_role ON public.employee IS '0 - роль
 
 
 --
--- TOC entry 237 (class 1259 OID 103388)
+-- TOC entry 235 (class 1259 OID 103388)
 -- Name: form_preview; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3042,7 +3849,7 @@ CREATE TABLE public.goods (
 ALTER TABLE public.goods OWNER TO postgres;
 
 --
--- TOC entry 3400 (class 0 OID 0)
+-- TOC entry 3525 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: TABLE goods; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3051,7 +3858,7 @@ COMMENT ON TABLE public.goods IS 'Номенклатура';
 
 
 --
--- TOC entry 3401 (class 0 OID 0)
+-- TOC entry 3526 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.ext_article; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3060,7 +3867,7 @@ COMMENT ON COLUMN public.goods.ext_article IS 'Артикул';
 
 
 --
--- TOC entry 3402 (class 0 OID 0)
+-- TOC entry 3527 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.measurement_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3069,7 +3876,7 @@ COMMENT ON COLUMN public.goods.measurement_id IS 'Еденица измерен�
 
 
 --
--- TOC entry 3403 (class 0 OID 0)
+-- TOC entry 3528 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3078,7 +3885,7 @@ COMMENT ON COLUMN public.goods.price IS 'Цена';
 
 
 --
--- TOC entry 3404 (class 0 OID 0)
+-- TOC entry 3529 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.tax; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3087,7 +3894,7 @@ COMMENT ON COLUMN public.goods.tax IS 'Значение НДС';
 
 
 --
--- TOC entry 3405 (class 0 OID 0)
+-- TOC entry 3530 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.min_order; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3096,12 +3903,75 @@ COMMENT ON COLUMN public.goods.min_order IS 'Минимальная партия
 
 
 --
--- TOC entry 3406 (class 0 OID 0)
+-- TOC entry 3531 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: COLUMN goods.is_service; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.goods.is_service IS 'Это услуга';
+
+
+--
+-- TOC entry 253 (class 1259 OID 144653)
+-- Name: goods_detail_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.goods_detail_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.goods_detail_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3533 (class 0 OID 0)
+-- Dependencies: 253
+-- Name: goods_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.goods_detail_id_seq OWNED BY public.goods_detail.id;
+
+
+--
+-- TOC entry 259 (class 1259 OID 144727)
+-- Name: goods_in_operation; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.goods_in_operation (
+    id bigint NOT NULL,
+    item_operation_id uuid,
+    goods_id uuid,
+    goods_count numeric(12,3)
+);
+
+
+ALTER TABLE public.goods_in_operation OWNER TO postgres;
+
+--
+-- TOC entry 258 (class 1259 OID 144725)
+-- Name: goods_in_operation_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.goods_in_operation_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.goods_in_operation_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3536 (class 0 OID 0)
+-- Dependencies: 258
+-- Name: goods_in_operation_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.goods_in_operation_id_seq OWNED BY public.goods_in_operation.id;
 
 
 --
@@ -3124,7 +3994,7 @@ CREATE TABLE public.history (
 ALTER TABLE public.history OWNER TO postgres;
 
 --
--- TOC entry 3408 (class 0 OID 0)
+-- TOC entry 3538 (class 0 OID 0)
 -- Dependencies: 206
 -- Name: COLUMN history.user_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3148,12 +4018,65 @@ CREATE SEQUENCE public.history_id_seq
 ALTER TABLE public.history_id_seq OWNER TO postgres;
 
 --
--- TOC entry 3410 (class 0 OID 0)
+-- TOC entry 3540 (class 0 OID 0)
 -- Dependencies: 205
 -- Name: history_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.history_id_seq OWNED BY public.history.id;
+
+
+--
+-- TOC entry 260 (class 1259 OID 144767)
+-- Name: inventory; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.inventory (
+    id uuid NOT NULL,
+    employee_id uuid
+);
+
+
+ALTER TABLE public.inventory OWNER TO postgres;
+
+--
+-- TOC entry 262 (class 1259 OID 144784)
+-- Name: inventory_detail; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.inventory_detail (
+    id bigint NOT NULL,
+    owner_id uuid NOT NULL,
+    goods_id uuid NOT NULL,
+    goods_count numeric(12,3) NOT NULL,
+    CONSTRAINT chk_inventory_detail_count CHECK ((goods_count > (0)::numeric))
+);
+
+
+ALTER TABLE public.inventory_detail OWNER TO postgres;
+
+--
+-- TOC entry 261 (class 1259 OID 144782)
+-- Name: inventory_detail_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.inventory_detail_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.inventory_detail_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3542 (class 0 OID 0)
+-- Dependencies: 261
+-- Name: inventory_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.inventory_detail_id_seq OWNED BY public.inventory_detail.id;
 
 
 --
@@ -3183,14 +4106,15 @@ CREATE TABLE public.item_goods (
     goods_id uuid,
     goods_count numeric(12,3),
     price money,
-    cost money
+    cost money,
+    uses numeric(12,3)
 );
 
 
 ALTER TABLE public.item_goods OWNER TO postgres;
 
 --
--- TOC entry 3413 (class 0 OID 0)
+-- TOC entry 3544 (class 0 OID 0)
 -- Dependencies: 221
 -- Name: COLUMN item_goods.goods_count; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3199,7 +4123,7 @@ COMMENT ON COLUMN public.item_goods.goods_count IS 'Количество';
 
 
 --
--- TOC entry 3414 (class 0 OID 0)
+-- TOC entry 3545 (class 0 OID 0)
 -- Dependencies: 221
 -- Name: COLUMN item_goods.price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3208,12 +4132,21 @@ COMMENT ON COLUMN public.item_goods.price IS 'Цена за еденицу но�
 
 
 --
--- TOC entry 3415 (class 0 OID 0)
+-- TOC entry 3546 (class 0 OID 0)
 -- Dependencies: 221
 -- Name: COLUMN item_goods.cost; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.item_goods.cost IS 'Сумма';
+
+
+--
+-- TOC entry 3547 (class 0 OID 0)
+-- Dependencies: 221
+-- Name: COLUMN item_goods.uses; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.item_goods.uses IS 'Использовано в операциях';
 
 
 --
@@ -3233,7 +4166,7 @@ CREATE TABLE public.item_operation (
 ALTER TABLE public.item_operation OWNER TO postgres;
 
 --
--- TOC entry 3417 (class 0 OID 0)
+-- TOC entry 3549 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: COLUMN item_operation.operation_count; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3242,7 +4175,7 @@ COMMENT ON COLUMN public.item_operation.operation_count IS 'Количество
 
 
 --
--- TOC entry 3418 (class 0 OID 0)
+-- TOC entry 3550 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: COLUMN item_operation.price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3251,7 +4184,7 @@ COMMENT ON COLUMN public.item_operation.price IS 'Расценка за опер
 
 
 --
--- TOC entry 3419 (class 0 OID 0)
+-- TOC entry 3551 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: COLUMN item_operation.cost; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3274,10 +4207,9 @@ CREATE TABLE public.kind (
     enum_id uuid NOT NULL,
     picture_id uuid,
     transition_id uuid,
-    schema_viewer jsonb,
-    schema_editor jsonb,
     prefix character varying(5),
     number_digits integer DEFAULT 0,
+    schema_command jsonb,
     CONSTRAINT chk_kind_number_digits CHECK (((number_digits >= 0) AND (number_digits <= 15)))
 );
 
@@ -3285,7 +4217,7 @@ CREATE TABLE public.kind (
 ALTER TABLE public.kind OWNER TO postgres;
 
 --
--- TOC entry 3421 (class 0 OID 0)
+-- TOC entry 3553 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: TABLE kind; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3294,7 +4226,7 @@ COMMENT ON TABLE public.kind IS 'Таблицы доступные для про
 
 
 --
--- TOC entry 3422 (class 0 OID 0)
+-- TOC entry 3554 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.code; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3303,7 +4235,7 @@ COMMENT ON COLUMN public.kind.code IS 'Уникальный текстовый �
 
 
 --
--- TOC entry 3423 (class 0 OID 0)
+-- TOC entry 3555 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3312,7 +4244,7 @@ COMMENT ON COLUMN public.kind.name IS 'Сокращенное наименова
 
 
 --
--- TOC entry 3424 (class 0 OID 0)
+-- TOC entry 3556 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.title; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3321,7 +4253,7 @@ COMMENT ON COLUMN public.kind.title IS 'Полное наименование д
 
 
 --
--- TOC entry 3425 (class 0 OID 0)
+-- TOC entry 3557 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.enum_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3330,7 +4262,7 @@ COMMENT ON COLUMN public.kind.enum_id IS 'Вид документа';
 
 
 --
--- TOC entry 3426 (class 0 OID 0)
+-- TOC entry 3558 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.prefix; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3339,7 +4271,7 @@ COMMENT ON COLUMN public.kind.prefix IS 'Префикс для номерных 
 
 
 --
--- TOC entry 3427 (class 0 OID 0)
+-- TOC entry 3559 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: COLUMN kind.number_digits; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3378,7 +4310,7 @@ CREATE SEQUENCE public.kind_child_id_seq
 ALTER TABLE public.kind_child_id_seq OWNER TO postgres;
 
 --
--- TOC entry 3430 (class 0 OID 0)
+-- TOC entry 3562 (class 0 OID 0)
 -- Dependencies: 215
 -- Name: kind_child_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -3401,6 +4333,19 @@ CREATE TABLE public.kind_enum (
 ALTER TABLE public.kind_enum OWNER TO postgres;
 
 --
+-- TOC entry 246 (class 1259 OID 144370)
+-- Name: material; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.material (
+    id uuid NOT NULL,
+    goods_id uuid NOT NULL
+);
+
+
+ALTER TABLE public.material OWNER TO postgres;
+
+--
 -- TOC entry 212 (class 1259 OID 78195)
 -- Name: measurement; Type: TABLE; Schema: public; Owner: postgres
 --
@@ -3414,12 +4359,46 @@ CREATE TABLE public.measurement (
 ALTER TABLE public.measurement OWNER TO postgres;
 
 --
--- TOC entry 3433 (class 0 OID 0)
+-- TOC entry 3566 (class 0 OID 0)
 -- Dependencies: 212
 -- Name: TABLE measurement; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON TABLE public.measurement IS 'Единицы измерений';
+
+
+--
+-- TOC entry 251 (class 1259 OID 144578)
+-- Name: movement_goods; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.movement_goods (
+    id uuid NOT NULL,
+    source_doc_id uuid,
+    goods_count numeric(12,3),
+    accounting_doc_id uuid,
+    contractor_id uuid
+);
+
+
+ALTER TABLE public.movement_goods OWNER TO postgres;
+
+--
+-- TOC entry 3568 (class 0 OID 0)
+-- Dependencies: 251
+-- Name: COLUMN movement_goods.source_doc_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.movement_goods.source_doc_id IS 'Документ внесший изменения или добавивший запись';
+
+
+--
+-- TOC entry 3569 (class 0 OID 0)
+-- Dependencies: 251
+-- Name: COLUMN movement_goods.accounting_doc_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.movement_goods.accounting_doc_id IS 'Документ содержащий информацию о приходе/расходе';
 
 
 --
@@ -3435,7 +4414,7 @@ CREATE TABLE public.okopf (
 ALTER TABLE public.okopf OWNER TO postgres;
 
 --
--- TOC entry 3435 (class 0 OID 0)
+-- TOC entry 3571 (class 0 OID 0)
 -- Dependencies: 224
 -- Name: TABLE okopf; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3444,7 +4423,7 @@ COMMENT ON TABLE public.okopf IS 'ОКОПФ';
 
 
 --
--- TOC entry 236 (class 1259 OID 103351)
+-- TOC entry 234 (class 1259 OID 103351)
 -- Name: okpdtr; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3473,7 +4452,7 @@ CREATE TABLE public.operation (
 ALTER TABLE public.operation OWNER TO postgres;
 
 --
--- TOC entry 3438 (class 0 OID 0)
+-- TOC entry 3574 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: TABLE operation; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3482,7 +4461,7 @@ COMMENT ON TABLE public.operation IS 'Производственные опер�
 
 
 --
--- TOC entry 3439 (class 0 OID 0)
+-- TOC entry 3575 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: COLUMN operation.produced; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3491,7 +4470,7 @@ COMMENT ON COLUMN public.operation.produced IS 'Выработка за врем
 
 
 --
--- TOC entry 3440 (class 0 OID 0)
+-- TOC entry 3576 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: COLUMN operation.prod_time; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3500,7 +4479,7 @@ COMMENT ON COLUMN public.operation.prod_time IS 'Время за которое 
 
 
 --
--- TOC entry 3441 (class 0 OID 0)
+-- TOC entry 3577 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: COLUMN operation.production_rate; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3509,7 +4488,7 @@ COMMENT ON COLUMN public.operation.production_rate IS 'Норма выработ
 
 
 --
--- TOC entry 3442 (class 0 OID 0)
+-- TOC entry 3578 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: COLUMN operation.type_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3518,7 +4497,7 @@ COMMENT ON COLUMN public.operation.type_id IS 'Тип операции';
 
 
 --
--- TOC entry 243 (class 1259 OID 119728)
+-- TOC entry 239 (class 1259 OID 119728)
 -- Name: operation_execute; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3536,7 +4515,7 @@ CREATE TABLE public.operation_execute (
 ALTER TABLE public.operation_execute OWNER TO postgres;
 
 --
--- TOC entry 245 (class 1259 OID 127880)
+-- TOC entry 241 (class 1259 OID 127880)
 -- Name: operation_executor; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3547,6 +4526,7 @@ CREATE TABLE public.operation_executor (
     operation_id uuid,
     employee_id uuid,
     operation_count integer DEFAULT 0,
+    using_goods_id uuid,
     CONSTRAINT chk_operation_executor_count CHECK ((operation_count >= 0))
 );
 
@@ -3554,8 +4534,8 @@ CREATE TABLE public.operation_executor (
 ALTER TABLE public.operation_executor OWNER TO postgres;
 
 --
--- TOC entry 3445 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3581 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: COLUMN operation_executor.order_id; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3563,8 +4543,8 @@ COMMENT ON COLUMN public.operation_executor.order_id IS 'Заказ';
 
 
 --
--- TOC entry 3446 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3582 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: COLUMN operation_executor.goods_id; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3572,8 +4552,8 @@ COMMENT ON COLUMN public.operation_executor.goods_id IS 'Изделие';
 
 
 --
--- TOC entry 3447 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3583 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: COLUMN operation_executor.operation_id; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3581,8 +4561,8 @@ COMMENT ON COLUMN public.operation_executor.operation_id IS 'Операция';
 
 
 --
--- TOC entry 3448 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3584 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: COLUMN operation_executor.employee_id; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3590,12 +4570,21 @@ COMMENT ON COLUMN public.operation_executor.employee_id IS 'Исполнител
 
 
 --
--- TOC entry 3449 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3585 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: COLUMN operation_executor.operation_count; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.operation_executor.operation_count IS 'Количество выполненных операций';
+
+
+--
+-- TOC entry 3586 (class 0 OID 0)
+-- Dependencies: 241
+-- Name: COLUMN operation_executor.using_goods_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.operation_executor.using_goods_id IS 'Использованый материал для этой операции';
 
 
 --
@@ -3612,7 +4601,7 @@ CREATE TABLE public.operation_type (
 ALTER TABLE public.operation_type OWNER TO postgres;
 
 --
--- TOC entry 3451 (class 0 OID 0)
+-- TOC entry 3588 (class 0 OID 0)
 -- Dependencies: 218
 -- Name: TABLE operation_type; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3621,7 +4610,7 @@ COMMENT ON TABLE public.operation_type IS 'Типы производственн
 
 
 --
--- TOC entry 241 (class 1259 OID 103491)
+-- TOC entry 237 (class 1259 OID 103491)
 -- Name: order_complete; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3636,30 +4625,22 @@ CREATE TABLE public.order_complete (
 ALTER TABLE public.order_complete OWNER TO postgres;
 
 --
--- TOC entry 240 (class 1259 OID 103464)
+-- TOC entry 256 (class 1259 OID 144675)
 -- Name: order_detail; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.order_detail (
-    id bigint NOT NULL,
-    owner_id uuid NOT NULL,
-    goods_id uuid NOT NULL,
-    goods_count numeric(12,3),
-    price money,
-    cost money,
-    tax integer,
-    tax_value money,
-    cost_with_tax money,
-    complete_status integer DEFAULT 0,
-    remaind_count numeric(12,3) DEFAULT 0
-);
+    complete_status integer,
+    remaind_count numeric(12,3)
+)
+INHERITS (public.goods_detail);
 
 
 ALTER TABLE public.order_detail OWNER TO postgres;
 
 --
--- TOC entry 3454 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3591 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.price; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3667,8 +4648,8 @@ COMMENT ON COLUMN public.order_detail.price IS 'Цена';
 
 
 --
--- TOC entry 3455 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3592 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.cost; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3676,17 +4657,17 @@ COMMENT ON COLUMN public.order_detail.cost IS 'Сумма';
 
 
 --
--- TOC entry 3456 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3593 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.order_detail.tax IS 'Значение НДС';
+COMMENT ON COLUMN public.order_detail.tax IS 'Ставка НДС';
 
 
 --
--- TOC entry 3457 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3594 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.tax_value; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3694,8 +4675,8 @@ COMMENT ON COLUMN public.order_detail.tax_value IS 'Сумма НДС';
 
 
 --
--- TOC entry 3458 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3595 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.cost_with_tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3703,8 +4684,8 @@ COMMENT ON COLUMN public.order_detail.cost_with_tax IS 'Всего с НДС';
 
 
 --
--- TOC entry 3459 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3596 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.complete_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3712,8 +4693,8 @@ COMMENT ON COLUMN public.order_detail.complete_status IS 'Процент изг�
 
 
 --
--- TOC entry 3460 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3597 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: COLUMN order_detail.remaind_count; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3721,31 +4702,7 @@ COMMENT ON COLUMN public.order_detail.remaind_count IS 'Остаток изде�
 
 
 --
--- TOC entry 239 (class 1259 OID 103462)
--- Name: order_detail_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.order_detail_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.order_detail_id_seq OWNER TO postgres;
-
---
--- TOC entry 3462 (class 0 OID 0)
--- Dependencies: 239
--- Name: order_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.order_detail_id_seq OWNED BY public.order_detail.id;
-
-
---
--- TOC entry 238 (class 1259 OID 103447)
+-- TOC entry 236 (class 1259 OID 103447)
 -- Name: order_production; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3763,7 +4720,7 @@ CREATE TABLE public.order_production (
 ALTER TABLE public.order_production OWNER TO postgres;
 
 --
--- TOC entry 242 (class 1259 OID 119690)
+-- TOC entry 238 (class 1259 OID 119690)
 -- Name: order_shipped; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3784,8 +4741,8 @@ CREATE TABLE public.order_shipped (
 ALTER TABLE public.order_shipped OWNER TO postgres;
 
 --
--- TOC entry 3465 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3600 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: COLUMN order_shipped.price; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3793,8 +4750,8 @@ COMMENT ON COLUMN public.order_shipped.price IS 'Цена';
 
 
 --
--- TOC entry 3466 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3601 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: COLUMN order_shipped.tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3802,8 +4759,8 @@ COMMENT ON COLUMN public.order_shipped.tax IS 'Значение НДС';
 
 
 --
--- TOC entry 3467 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3602 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: COLUMN order_shipped.tax_value; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3811,8 +4768,8 @@ COMMENT ON COLUMN public.order_shipped.tax_value IS 'Сумма НДС';
 
 
 --
--- TOC entry 3468 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3603 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: COLUMN order_shipped.cost; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3820,8 +4777,8 @@ COMMENT ON COLUMN public.order_shipped.cost IS 'Стоимость';
 
 
 --
--- TOC entry 3469 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3604 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: COLUMN order_shipped.cost_with_tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3853,13 +4810,26 @@ CREATE TABLE public.organization (
 ALTER TABLE public.organization OWNER TO postgres;
 
 --
--- TOC entry 3471 (class 0 OID 0)
+-- TOC entry 3606 (class 0 OID 0)
 -- Dependencies: 231
 -- Name: COLUMN organization.default_org; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.organization.default_org IS 'Основная организация';
 
+
+--
+-- TOC entry 250 (class 1259 OID 144556)
+-- Name: payment_order; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.payment_order (
+    id uuid NOT NULL,
+    pay_summa money
+);
+
+
+ALTER TABLE public.payment_order OWNER TO postgres;
 
 --
 -- TOC entry 229 (class 1259 OID 103142)
@@ -3875,7 +4845,7 @@ CREATE TABLE public.percentage (
 ALTER TABLE public.percentage OWNER TO postgres;
 
 --
--- TOC entry 3473 (class 0 OID 0)
+-- TOC entry 3609 (class 0 OID 0)
 -- Dependencies: 229
 -- Name: TABLE percentage; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3884,7 +4854,7 @@ COMMENT ON TABLE public.percentage IS 'История изменения про�
 
 
 --
--- TOC entry 234 (class 1259 OID 103326)
+-- TOC entry 232 (class 1259 OID 103326)
 -- Name: person; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3901,8 +4871,8 @@ CREATE TABLE public.person (
 ALTER TABLE public.person OWNER TO postgres;
 
 --
--- TOC entry 3475 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3611 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: COLUMN person.surname; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3910,8 +4880,8 @@ COMMENT ON COLUMN public.person.surname IS 'Фамилия';
 
 
 --
--- TOC entry 3476 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3612 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: COLUMN person.first_name; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3919,8 +4889,8 @@ COMMENT ON COLUMN public.person.first_name IS 'Имя';
 
 
 --
--- TOC entry 3477 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3613 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: COLUMN person.middle_name; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3928,8 +4898,8 @@ COMMENT ON COLUMN public.person.middle_name IS 'Отчество';
 
 
 --
--- TOC entry 3478 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3614 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: COLUMN person.phone; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3937,8 +4907,8 @@ COMMENT ON COLUMN public.person.phone IS 'Телефон';
 
 
 --
--- TOC entry 3479 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3615 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: COLUMN person.email; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3963,7 +4933,7 @@ CREATE TABLE public.picture (
 ALTER TABLE public.picture OWNER TO postgres;
 
 --
--- TOC entry 3481 (class 0 OID 0)
+-- TOC entry 3617 (class 0 OID 0)
 -- Dependencies: 204
 -- Name: TABLE picture; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3972,7 +4942,7 @@ COMMENT ON TABLE public.picture IS 'Изображения/иконки';
 
 
 --
--- TOC entry 3482 (class 0 OID 0)
+-- TOC entry 3618 (class 0 OID 0)
 -- Dependencies: 204
 -- Name: COLUMN picture.font_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -3994,7 +4964,7 @@ CREATE TABLE public.price (
 ALTER TABLE public.price OWNER TO postgres;
 
 --
--- TOC entry 3484 (class 0 OID 0)
+-- TOC entry 3620 (class 0 OID 0)
 -- Dependencies: 227
 -- Name: TABLE price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4012,10 +4982,6 @@ CREATE TABLE public.request (
     contractor_id uuid,
     request_price money,
     sending_date timestamp with time zone,
-    invoice_number character varying(20),
-    invoice_date timestamp with time zone,
-    waybill_number character varying(20),
-    waybill_date timestamp with time zone,
     request_tax integer,
     request_tax_value money,
     request_price_with_tax money
@@ -4025,7 +4991,7 @@ CREATE TABLE public.request (
 ALTER TABLE public.request OWNER TO postgres;
 
 --
--- TOC entry 3486 (class 0 OID 0)
+-- TOC entry 3622 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: TABLE request; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4034,7 +5000,7 @@ COMMENT ON TABLE public.request IS 'Заявка за закупку компл�
 
 
 --
--- TOC entry 3487 (class 0 OID 0)
+-- TOC entry 3623 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: COLUMN request.contractor_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4043,7 +5009,7 @@ COMMENT ON COLUMN public.request.contractor_id IS 'Контрагент (пол�
 
 
 --
--- TOC entry 3488 (class 0 OID 0)
+-- TOC entry 3624 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: COLUMN request.request_price; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4052,7 +5018,7 @@ COMMENT ON COLUMN public.request.request_price IS 'Приблизительна�
 
 
 --
--- TOC entry 3489 (class 0 OID 0)
+-- TOC entry 3625 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: COLUMN request.sending_date; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4061,74 +5027,47 @@ COMMENT ON COLUMN public.request.sending_date IS 'Дата отправки';
 
 
 --
--- TOC entry 3490 (class 0 OID 0)
--- Dependencies: 226
--- Name: COLUMN request.invoice_number; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.request.invoice_number IS 'Номер счет-фактуры';
-
-
---
--- TOC entry 3491 (class 0 OID 0)
--- Dependencies: 226
--- Name: COLUMN request.invoice_date; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.request.invoice_date IS 'Дата счет-фактуры';
-
-
---
--- TOC entry 3492 (class 0 OID 0)
--- Dependencies: 226
--- Name: COLUMN request.waybill_number; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.request.waybill_number IS 'Номер накладной';
-
-
---
--- TOC entry 3493 (class 0 OID 0)
--- Dependencies: 226
--- Name: COLUMN request.waybill_date; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.request.waybill_date IS 'Дата накладной';
-
-
---
--- TOC entry 233 (class 1259 OID 103272)
+-- TOC entry 255 (class 1259 OID 144661)
 -- Name: request_detail; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.request_detail (
-    id bigint NOT NULL,
-    owner_id uuid NOT NULL,
-    goods_id uuid,
-    goods_count numeric(12,3),
-    price money,
-    cost money,
-    tax integer,
-    tax_value money,
-    cost_with_tax money,
-    fact_goods_count numeric(12,3)
-);
+)
+INHERITS (public.goods_detail);
 
 
 ALTER TABLE public.request_detail OWNER TO postgres;
 
 --
--- TOC entry 3495 (class 0 OID 0)
--- Dependencies: 233
+-- TOC entry 3627 (class 0 OID 0)
+-- Dependencies: 255
+-- Name: COLUMN request_detail.price; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.request_detail.price IS 'Цена бз НДС';
+
+
+--
+-- TOC entry 3628 (class 0 OID 0)
+-- Dependencies: 255
+-- Name: COLUMN request_detail.cost; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.request_detail.cost IS 'Стоимость товара без НДС';
+
+
+--
+-- TOC entry 3629 (class 0 OID 0)
+-- Dependencies: 255
 -- Name: COLUMN request_detail.tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.request_detail.tax IS 'Значение НДС';
+COMMENT ON COLUMN public.request_detail.tax IS 'Ставка НДС';
 
 
 --
--- TOC entry 3496 (class 0 OID 0)
--- Dependencies: 233
+-- TOC entry 3630 (class 0 OID 0)
+-- Dependencies: 255
 -- Name: COLUMN request_detail.tax_value; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -4136,8 +5075,8 @@ COMMENT ON COLUMN public.request_detail.tax_value IS 'Сумма НДС';
 
 
 --
--- TOC entry 3497 (class 0 OID 0)
--- Dependencies: 233
+-- TOC entry 3631 (class 0 OID 0)
+-- Dependencies: 255
 -- Name: COLUMN request_detail.cost_with_tax; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -4145,57 +5084,42 @@ COMMENT ON COLUMN public.request_detail.cost_with_tax IS 'Всего с НДС';
 
 
 --
--- TOC entry 3498 (class 0 OID 0)
--- Dependencies: 233
--- Name: COLUMN request_detail.fact_goods_count; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.request_detail.fact_goods_count IS 'Фактическая отгрузка';
-
-
---
--- TOC entry 232 (class 1259 OID 103270)
--- Name: request_detail_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.request_detail_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.request_detail_id_seq OWNER TO postgres;
-
---
--- TOC entry 3500 (class 0 OID 0)
--- Dependencies: 232
--- Name: request_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.request_detail_id_seq OWNED BY public.request_detail.id;
-
-
---
--- TOC entry 248 (class 1259 OID 136124)
+-- TOC entry 244 (class 1259 OID 136124)
 -- Name: salary_view; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.salary_view AS
- SELECT date_part('month'::text, d.doc_date) AS calc_month,
-    date_part('year'::text, d.doc_date) AS calc_year,
-    pd.name,
-    sum((o_e.operation_count * o.salary)) AS salary,
-    sum(round(((o_e.operation_count)::double precision / (o.production_rate)::double precision))) AS work_time
-   FROM (((((public.operation_executor o_e
-     JOIN public.document d ON ((d.id = o_e.id)))
-     JOIN public.employee e ON ((e.id = o_e.employee_id)))
-     JOIN public.person p ON ((p.id = e.person_id)))
-     JOIN public.directory pd ON ((pd.id = p.id)))
-     JOIN public.operation o ON ((o.id = o_e.operation_id)))
-  GROUP BY (date_part('month'::text, d.doc_date)), (date_part('year'::text, d.doc_date)), pd.name
-  ORDER BY (date_part('month'::text, d.doc_date)), (date_part('year'::text, d.doc_date)), pd.name;
+ WITH cal AS (
+         SELECT date_part('month'::text, calendar.calendar_date) AS cal_month,
+            date_part('year'::text, calendar.calendar_date) AS cal_year,
+            sum(calendar.work_hours) AS month_work_hours
+           FROM public.calendar
+          GROUP BY (date_part('year'::text, calendar.calendar_date)), (date_part('month'::text, calendar.calendar_date))
+          ORDER BY (date_part('year'::text, calendar.calendar_date)), (date_part('month'::text, calendar.calendar_date))
+        ), emp_salary AS (
+         SELECT date_part('month'::text, d.doc_date) AS calc_month,
+            date_part('year'::text, d.doc_date) AS calc_year,
+            pd.name,
+            sum((o_e.operation_count * o.salary)) AS salary,
+            sum(round(((o_e.operation_count)::double precision / (o.production_rate)::double precision))) AS work_time
+           FROM (((((public.operation_executor o_e
+             JOIN public.document d ON ((d.id = o_e.id)))
+             JOIN public.employee e ON ((e.id = o_e.employee_id)))
+             JOIN public.person p ON ((p.id = e.person_id)))
+             JOIN public.directory pd ON ((pd.id = p.id)))
+             JOIN public.operation o ON ((o.id = o_e.operation_id)))
+          GROUP BY (date_part('month'::text, d.doc_date)), (date_part('year'::text, d.doc_date)), pd.name
+        )
+ SELECT emp_salary.calc_month,
+    emp_salary.calc_year,
+    emp_salary.name,
+    emp_salary.salary,
+    emp_salary.work_time,
+    cal.month_work_hours,
+    round(((emp_salary.work_time / (cal.month_work_hours)::double precision) * (100)::double precision)) AS work_percent
+   FROM (emp_salary
+     JOIN cal ON (((cal.cal_year = emp_salary.calc_year) AND (cal.cal_month = emp_salary.calc_month))))
+  ORDER BY emp_salary.calc_month, emp_salary.calc_year, emp_salary.name;
 
 
 ALTER TABLE public.salary_view OWNER TO postgres;
@@ -4216,7 +5140,7 @@ CREATE TABLE public.sidebar (
 ALTER TABLE public.sidebar OWNER TO postgres;
 
 --
--- TOC entry 3503 (class 0 OID 0)
+-- TOC entry 3634 (class 0 OID 0)
 -- Dependencies: 208
 -- Name: TABLE sidebar; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4240,7 +5164,7 @@ CREATE TABLE public.status (
 ALTER TABLE public.status OWNER TO postgres;
 
 --
--- TOC entry 3505 (class 0 OID 0)
+-- TOC entry 3636 (class 0 OID 0)
 -- Dependencies: 198
 -- Name: TABLE status; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4249,7 +5173,7 @@ COMMENT ON TABLE public.status IS 'Состояния документов/сп�
 
 
 --
--- TOC entry 3506 (class 0 OID 0)
+-- TOC entry 3637 (class 0 OID 0)
 -- Dependencies: 198
 -- Name: COLUMN status.code; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4258,7 +5182,7 @@ COMMENT ON COLUMN public.status.code IS 'Наименование состоян
 
 
 --
--- TOC entry 3507 (class 0 OID 0)
+-- TOC entry 3638 (class 0 OID 0)
 -- Dependencies: 198
 -- Name: COLUMN status.note; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4283,7 +5207,7 @@ CREATE TABLE public.transition (
 ALTER TABLE public.transition OWNER TO postgres;
 
 --
--- TOC entry 3509 (class 0 OID 0)
+-- TOC entry 3640 (class 0 OID 0)
 -- Dependencies: 199
 -- Name: COLUMN transition.starting_status_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4292,7 +5216,7 @@ COMMENT ON COLUMN public.transition.starting_status_id IS 'Начальное с
 
 
 --
--- TOC entry 3510 (class 0 OID 0)
+-- TOC entry 3641 (class 0 OID 0)
 -- Dependencies: 199
 -- Name: COLUMN transition.finishing_status_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4301,7 +5225,7 @@ COMMENT ON COLUMN public.transition.finishing_status_id IS 'Конечное с�
 
 
 --
--- TOC entry 3511 (class 0 OID 0)
+-- TOC entry 3642 (class 0 OID 0)
 -- Dependencies: 199
 -- Name: COLUMN transition.canceled_status_id; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4330,7 +5254,7 @@ CREATE TABLE public.user_alias (
 ALTER TABLE public.user_alias OWNER TO postgres;
 
 --
--- TOC entry 3513 (class 0 OID 0)
+-- TOC entry 3644 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: TABLE user_alias; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4339,7 +5263,7 @@ COMMENT ON TABLE public.user_alias IS 'Пользователи';
 
 
 --
--- TOC entry 3514 (class 0 OID 0)
+-- TOC entry 3645 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: COLUMN user_alias.name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4348,7 +5272,7 @@ COMMENT ON COLUMN public.user_alias.name IS 'Пользователь';
 
 
 --
--- TOC entry 3515 (class 0 OID 0)
+-- TOC entry 3646 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: COLUMN user_alias.pg_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4357,7 +5281,7 @@ COMMENT ON COLUMN public.user_alias.pg_name IS 'Имя пользователя 
 
 
 --
--- TOC entry 3516 (class 0 OID 0)
+-- TOC entry 3647 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: COLUMN user_alias.surname; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4366,7 +5290,7 @@ COMMENT ON COLUMN public.user_alias.surname IS 'Фамилия';
 
 
 --
--- TOC entry 3517 (class 0 OID 0)
+-- TOC entry 3648 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: COLUMN user_alias.first_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4375,7 +5299,7 @@ COMMENT ON COLUMN public.user_alias.first_name IS 'Имя';
 
 
 --
--- TOC entry 3518 (class 0 OID 0)
+-- TOC entry 3649 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: COLUMN user_alias.middle_name; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -4384,7 +5308,15 @@ COMMENT ON COLUMN public.user_alias.middle_name IS 'Отчество';
 
 
 --
--- TOC entry 2956 (class 2604 OID 77913)
+-- TOC entry 3059 (class 2604 OID 144696)
+-- Name: accounting_detail id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_detail ALTER COLUMN id SET DEFAULT nextval('public.goods_detail_id_seq'::regclass);
+
+
+--
+-- TOC entry 3017 (class 2604 OID 77913)
 -- Name: directory id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4392,7 +5324,7 @@ ALTER TABLE ONLY public.directory ALTER COLUMN id SET DEFAULT public.uuid_genera
 
 
 --
--- TOC entry 2974 (class 2604 OID 103024)
+-- TOC entry 3037 (class 2604 OID 103024)
 -- Name: document id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4400,7 +5332,7 @@ ALTER TABLE ONLY public.document ALTER COLUMN id SET DEFAULT public.uuid_generat
 
 
 --
--- TOC entry 2994 (class 2604 OID 136095)
+-- TOC entry 3053 (class 2604 OID 136095)
 -- Name: document_refs id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4408,7 +5340,31 @@ ALTER TABLE ONLY public.document_refs ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
--- TOC entry 2957 (class 2604 OID 78022)
+-- TOC entry 3055 (class 2604 OID 144533)
+-- Name: email id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.email ALTER COLUMN id SET DEFAULT nextval('public.email_id_seq'::regclass);
+
+
+--
+-- TOC entry 3056 (class 2604 OID 144658)
+-- Name: goods_detail id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_detail ALTER COLUMN id SET DEFAULT nextval('public.goods_detail_id_seq'::regclass);
+
+
+--
+-- TOC entry 3060 (class 2604 OID 144730)
+-- Name: goods_in_operation id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_in_operation ALTER COLUMN id SET DEFAULT nextval('public.goods_in_operation_id_seq'::regclass);
+
+
+--
+-- TOC entry 3018 (class 2604 OID 78022)
 -- Name: history id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4416,7 +5372,15 @@ ALTER TABLE ONLY public.history ALTER COLUMN id SET DEFAULT nextval('public.hist
 
 
 --
--- TOC entry 2966 (class 2604 OID 78246)
+-- TOC entry 3061 (class 2604 OID 144787)
+-- Name: inventory_detail id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory_detail ALTER COLUMN id SET DEFAULT nextval('public.inventory_detail_id_seq'::regclass);
+
+
+--
+-- TOC entry 3029 (class 2604 OID 78246)
 -- Name: kind_child id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4424,41 +5388,32 @@ ALTER TABLE ONLY public.kind_child ALTER COLUMN id SET DEFAULT nextval('public.k
 
 
 --
--- TOC entry 2985 (class 2604 OID 103467)
+-- TOC entry 3058 (class 2604 OID 144678)
 -- Name: order_detail id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.order_detail ALTER COLUMN id SET DEFAULT nextval('public.order_detail_id_seq'::regclass);
+ALTER TABLE ONLY public.order_detail ALTER COLUMN id SET DEFAULT nextval('public.goods_detail_id_seq'::regclass);
 
 
 --
--- TOC entry 2978 (class 2604 OID 103275)
+-- TOC entry 3057 (class 2604 OID 144664)
 -- Name: request_detail id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.request_detail ALTER COLUMN id SET DEFAULT nextval('public.request_detail_id_seq'::regclass);
+ALTER TABLE ONLY public.request_detail ALTER COLUMN id SET DEFAULT nextval('public.goods_detail_id_seq'::regclass);
 
 
 --
--- TOC entry 3103 (class 2606 OID 136134)
--- Name: calendar calendar_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3188 (class 2606 OID 144708)
+-- Name: accounting_detail accounting_detail_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.calendar
-    ADD CONSTRAINT calendar_pkey PRIMARY KEY (calendar_date);
-
-
---
--- TOC entry 3101 (class 2606 OID 136097)
--- Name: document_refs document_refs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.document_refs
-    ADD CONSTRAINT document_refs_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.accounting_detail
+    ADD CONSTRAINT accounting_detail_pkey PRIMARY KEY (id);
 
 
 --
--- TOC entry 3044 (class 2606 OID 78303)
+-- TOC entry 3111 (class 2606 OID 78303)
 -- Name: account pk_account_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4467,7 +5422,25 @@ ALTER TABLE ONLY public.account
 
 
 --
--- TOC entry 3037 (class 2606 OID 78210)
+-- TOC entry 3174 (class 2606 OID 144550)
+-- Name: accounting_document pk_accounting_docyments_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_document
+    ADD CONSTRAINT pk_accounting_docyments_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3180 (class 2606 OID 144617)
+-- Name: accounting_type_doc pk_accounting_type_doc_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_type_doc
+    ADD CONSTRAINT pk_accounting_type_doc_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3104 (class 2606 OID 78210)
 -- Name: bank pk_bank; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4476,7 +5449,7 @@ ALTER TABLE ONLY public.bank
 
 
 --
--- TOC entry 3050 (class 2606 OID 102929)
+-- TOC entry 3117 (class 2606 OID 102929)
 -- Name: calculation pk_calculation_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4485,7 +5458,16 @@ ALTER TABLE ONLY public.calculation
 
 
 --
--- TOC entry 3024 (class 2606 OID 78058)
+-- TOC entry 3166 (class 2606 OID 136134)
+-- Name: calendar pk_calendar_date; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.calendar
+    ADD CONSTRAINT pk_calendar_date PRIMARY KEY (calendar_date);
+
+
+--
+-- TOC entry 3091 (class 2606 OID 78058)
 -- Name: changing_status pk_changing_status; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4494,34 +5476,34 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3030 (class 2606 OID 78121)
--- Name: command pk_command; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3097 (class 2606 OID 78121)
+-- Name: command pk_command_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.command
-    ADD CONSTRAINT pk_command PRIMARY KEY (id);
+    ADD CONSTRAINT pk_command_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3056 (class 2606 OID 102977)
--- Name: condition pk_condition; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3123 (class 2606 OID 102977)
+-- Name: condition pk_condition_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.condition
-    ADD CONSTRAINT pk_condition PRIMARY KEY (id);
+    ADD CONSTRAINT pk_condition_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3032 (class 2606 OID 78145)
--- Name: contractor pk_contractor; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3099 (class 2606 OID 78145)
+-- Name: contractor pk_contractor_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.contractor
-    ADD CONSTRAINT pk_contractor PRIMARY KEY (id);
+    ADD CONSTRAINT pk_contractor_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3071 (class 2606 OID 103134)
+-- TOC entry 3138 (class 2606 OID 103134)
 -- Name: deduction pk_deduction_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4530,7 +5512,7 @@ ALTER TABLE ONLY public.deduction
 
 
 --
--- TOC entry 3016 (class 2606 OID 77915)
+-- TOC entry 3083 (class 2606 OID 77915)
 -- Name: directory pk_directory_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4539,7 +5521,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3063 (class 2606 OID 103048)
+-- TOC entry 3130 (class 2606 OID 103048)
 -- Name: document pk_document_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4548,16 +5530,34 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3013 (class 2606 OID 77902)
--- Name: document_info pk_document_info; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3080 (class 2606 OID 77902)
+-- Name: document_info pk_document_info_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.document_info
-    ADD CONSTRAINT pk_document_info PRIMARY KEY (id);
+    ADD CONSTRAINT pk_document_info_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3083 (class 2606 OID 103340)
+-- TOC entry 3164 (class 2606 OID 136097)
+-- Name: document_refs pk_document_refs_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.document_refs
+    ADD CONSTRAINT pk_document_refs_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3170 (class 2606 OID 144535)
+-- Name: email pk_email_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.email
+    ADD CONSTRAINT pk_email_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3148 (class 2606 OID 103340)
 -- Name: employee pk_employee_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4566,7 +5566,7 @@ ALTER TABLE ONLY public.employee
 
 
 --
--- TOC entry 3087 (class 2606 OID 103392)
+-- TOC entry 3152 (class 2606 OID 103392)
 -- Name: form_preview pk_form_preview_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4575,25 +5575,61 @@ ALTER TABLE ONLY public.form_preview
 
 
 --
--- TOC entry 3040 (class 2606 OID 78226)
--- Name: goods pk_goods; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3182 (class 2606 OID 144660)
+-- Name: goods_detail pk_goods_detail_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_detail
+    ADD CONSTRAINT pk_goods_detail_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3107 (class 2606 OID 78226)
+-- Name: goods pk_goods_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.goods
-    ADD CONSTRAINT pk_goods PRIMARY KEY (id);
+    ADD CONSTRAINT pk_goods_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3022 (class 2606 OID 78024)
--- Name: history pk_history; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3190 (class 2606 OID 144732)
+-- Name: goods_in_operation pk_goods_in_operation_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_in_operation
+    ADD CONSTRAINT pk_goods_in_operation_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3089 (class 2606 OID 78024)
+-- Name: history pk_history_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.history
-    ADD CONSTRAINT pk_history PRIMARY KEY (id);
+    ADD CONSTRAINT pk_history_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3075 (class 2606 OID 103158)
+-- TOC entry 3194 (class 2606 OID 144789)
+-- Name: inventory_detail pk_inventory_detail_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory_detail
+    ADD CONSTRAINT pk_inventory_detail_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3192 (class 2606 OID 144771)
+-- Name: inventory pk_inventory_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory
+    ADD CONSTRAINT pk_inventory_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3142 (class 2606 OID 103158)
 -- Name: item_deduction pk_item_deduction_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4602,7 +5638,7 @@ ALTER TABLE ONLY public.item_deduction
 
 
 --
--- TOC entry 3052 (class 2606 OID 102944)
+-- TOC entry 3119 (class 2606 OID 102944)
 -- Name: item_goods pk_item_goods_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4611,7 +5647,7 @@ ALTER TABLE ONLY public.item_goods
 
 
 --
--- TOC entry 3054 (class 2606 OID 102959)
+-- TOC entry 3121 (class 2606 OID 102959)
 -- Name: item_operation pk_item_operation_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4620,43 +5656,61 @@ ALTER TABLE ONLY public.item_operation
 
 
 --
--- TOC entry 3009 (class 2606 OID 77879)
--- Name: kind pk_kind; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.kind
-    ADD CONSTRAINT pk_kind PRIMARY KEY (id);
-
-
---
--- TOC entry 3042 (class 2606 OID 78248)
--- Name: kind_child pk_kind_child; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3109 (class 2606 OID 78248)
+-- Name: kind_child pk_kind_child_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.kind_child
-    ADD CONSTRAINT pk_kind_child PRIMARY KEY (id);
+    ADD CONSTRAINT pk_kind_child_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3005 (class 2606 OID 77865)
--- Name: kind_enum pk_kind_enum; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3072 (class 2606 OID 77865)
+-- Name: kind_enum pk_kind_enum_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.kind_enum
-    ADD CONSTRAINT pk_kind_enum PRIMARY KEY (id);
+    ADD CONSTRAINT pk_kind_enum_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3035 (class 2606 OID 78199)
--- Name: measurement pk_measurement; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3076 (class 2606 OID 77879)
+-- Name: kind pk_kind_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.kind
+    ADD CONSTRAINT pk_kind_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3168 (class 2606 OID 144374)
+-- Name: material pk_material_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.material
+    ADD CONSTRAINT pk_material_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3102 (class 2606 OID 78199)
+-- Name: measurement pk_measurement_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.measurement
-    ADD CONSTRAINT pk_measurement PRIMARY KEY (id);
+    ADD CONSTRAINT pk_measurement_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3060 (class 2606 OID 103002)
+-- TOC entry 3178 (class 2606 OID 144582)
+-- Name: movement_goods pk_movement_goods_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.movement_goods
+    ADD CONSTRAINT pk_movement_goods_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3127 (class 2606 OID 103002)
 -- Name: okopf pk_okopf_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4665,7 +5719,7 @@ ALTER TABLE ONLY public.okopf
 
 
 --
--- TOC entry 3085 (class 2606 OID 103355)
+-- TOC entry 3150 (class 2606 OID 103355)
 -- Name: okpdtr pk_okpdtr_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4674,7 +5728,7 @@ ALTER TABLE ONLY public.okpdtr
 
 
 --
--- TOC entry 3097 (class 2606 OID 119732)
+-- TOC entry 3160 (class 2606 OID 119732)
 -- Name: operation_execute pk_operation_execute_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4683,7 +5737,7 @@ ALTER TABLE ONLY public.operation_execute
 
 
 --
--- TOC entry 3099 (class 2606 OID 127884)
+-- TOC entry 3162 (class 2606 OID 127884)
 -- Name: operation_executor pk_operation_executor_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4692,7 +5746,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3048 (class 2606 OID 86531)
+-- TOC entry 3115 (class 2606 OID 86531)
 -- Name: operation pk_operation_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4701,16 +5755,16 @@ ALTER TABLE ONLY public.operation
 
 
 --
--- TOC entry 3046 (class 2606 OID 86521)
--- Name: operation_type pk_operation_type; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3113 (class 2606 OID 86521)
+-- Name: operation_type pk_operation_type_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.operation_type
-    ADD CONSTRAINT pk_operation_type PRIMARY KEY (id);
+    ADD CONSTRAINT pk_operation_type_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3093 (class 2606 OID 103495)
+-- TOC entry 3156 (class 2606 OID 103495)
 -- Name: order_complete pk_order_complete_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4719,7 +5773,7 @@ ALTER TABLE ONLY public.order_complete
 
 
 --
--- TOC entry 3091 (class 2606 OID 103469)
+-- TOC entry 3186 (class 2606 OID 144692)
 -- Name: order_detail pk_order_detail_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4728,7 +5782,7 @@ ALTER TABLE ONLY public.order_detail
 
 
 --
--- TOC entry 3089 (class 2606 OID 103451)
+-- TOC entry 3154 (class 2606 OID 103451)
 -- Name: order_production pk_order_production_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4737,7 +5791,7 @@ ALTER TABLE ONLY public.order_production
 
 
 --
--- TOC entry 3095 (class 2606 OID 119694)
+-- TOC entry 3158 (class 2606 OID 119694)
 -- Name: order_shipped pk_order_shipped_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4746,7 +5800,7 @@ ALTER TABLE ONLY public.order_shipped
 
 
 --
--- TOC entry 3077 (class 2606 OID 103243)
+-- TOC entry 3144 (class 2606 OID 103243)
 -- Name: organization pk_organization_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4755,7 +5809,16 @@ ALTER TABLE ONLY public.organization
 
 
 --
--- TOC entry 3073 (class 2606 OID 103146)
+-- TOC entry 3176 (class 2606 OID 144560)
+-- Name: payment_order pk_payment_order_id; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.payment_order
+    ADD CONSTRAINT pk_payment_order_id PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3140 (class 2606 OID 103146)
 -- Name: percentage pk_percentage_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4764,7 +5827,7 @@ ALTER TABLE ONLY public.percentage
 
 
 --
--- TOC entry 3081 (class 2606 OID 103330)
+-- TOC entry 3146 (class 2606 OID 103330)
 -- Name: person pk_person_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4773,16 +5836,16 @@ ALTER TABLE ONLY public.person
 
 
 --
--- TOC entry 3020 (class 2606 OID 77980)
--- Name: picture pk_picture; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3087 (class 2606 OID 77980)
+-- Name: picture pk_picture_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.picture
-    ADD CONSTRAINT pk_picture PRIMARY KEY (id);
+    ADD CONSTRAINT pk_picture_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3069 (class 2606 OID 103103)
+-- TOC entry 3136 (class 2606 OID 103103)
 -- Name: price pk_price_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4791,7 +5854,7 @@ ALTER TABLE ONLY public.price
 
 
 --
--- TOC entry 3079 (class 2606 OID 103277)
+-- TOC entry 3184 (class 2606 OID 144680)
 -- Name: request_detail pk_request_detail_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4800,7 +5863,7 @@ ALTER TABLE ONLY public.request_detail
 
 
 --
--- TOC entry 3067 (class 2606 OID 103093)
+-- TOC entry 3134 (class 2606 OID 103093)
 -- Name: request pk_request_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4809,43 +5872,43 @@ ALTER TABLE ONLY public.request
 
 
 --
--- TOC entry 3028 (class 2606 OID 78084)
--- Name: sidebar pk_sidebar; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3095 (class 2606 OID 78084)
+-- Name: sidebar pk_sidebar_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.sidebar
-    ADD CONSTRAINT pk_sidebar PRIMARY KEY (id);
+    ADD CONSTRAINT pk_sidebar_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 2999 (class 2606 OID 77851)
--- Name: status pk_status; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3066 (class 2606 OID 77851)
+-- Name: status pk_status_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.status
-    ADD CONSTRAINT pk_status PRIMARY KEY (id);
+    ADD CONSTRAINT pk_status_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3001 (class 2606 OID 77857)
--- Name: transition pk_transition; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3068 (class 2606 OID 77857)
+-- Name: transition pk_transition_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.transition
-    ADD CONSTRAINT pk_transition PRIMARY KEY (id);
+    ADD CONSTRAINT pk_transition_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 2997 (class 2606 OID 77841)
--- Name: user_alias pk_user_alias; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 3064 (class 2606 OID 77841)
+-- Name: user_alias pk_user_alias_id; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.user_alias
-    ADD CONSTRAINT pk_user_alias PRIMARY KEY (id);
+    ADD CONSTRAINT pk_user_alias_id PRIMARY KEY (id);
 
 
 --
--- TOC entry 3026 (class 2606 OID 78060)
+-- TOC entry 3093 (class 2606 OID 78060)
 -- Name: changing_status unq_changing_status; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4854,7 +5917,7 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3058 (class 2606 OID 102996)
+-- TOC entry 3125 (class 2606 OID 102996)
 -- Name: condition unq_condition_kind_status; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4863,7 +5926,7 @@ ALTER TABLE ONLY public.condition
 
 
 --
--- TOC entry 3018 (class 2606 OID 78175)
+-- TOC entry 3085 (class 2606 OID 78175)
 -- Name: directory unq_directory_code; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4872,7 +5935,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3065 (class 2606 OID 103481)
+-- TOC entry 3132 (class 2606 OID 103481)
 -- Name: document unq_document_number; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4881,7 +5944,16 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3011 (class 2606 OID 77881)
+-- TOC entry 3172 (class 2606 OID 144537)
+-- Name: email unq_email_address; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.email
+    ADD CONSTRAINT unq_email_address UNIQUE (address);
+
+
+--
+-- TOC entry 3078 (class 2606 OID 77881)
 -- Name: kind unq_kind_code; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4890,7 +5962,7 @@ ALTER TABLE ONLY public.kind
 
 
 --
--- TOC entry 3007 (class 2606 OID 77867)
+-- TOC entry 3074 (class 2606 OID 77867)
 -- Name: kind_enum unq_kind_enum_code; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4899,7 +5971,7 @@ ALTER TABLE ONLY public.kind_enum
 
 
 --
--- TOC entry 3003 (class 2606 OID 77859)
+-- TOC entry 3070 (class 2606 OID 77859)
 -- Name: transition unq_transition_name; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4908,7 +5980,7 @@ ALTER TABLE ONLY public.transition
 
 
 --
--- TOC entry 3014 (class 1259 OID 136137)
+-- TOC entry 3081 (class 1259 OID 136137)
 -- Name: idx_directory_discriminator; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4916,7 +5988,7 @@ CREATE INDEX idx_directory_discriminator ON public.directory USING btree (discri
 
 
 --
--- TOC entry 3061 (class 1259 OID 136138)
+-- TOC entry 3128 (class 1259 OID 136138)
 -- Name: idx_document_discriminator; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4924,7 +5996,7 @@ CREATE INDEX idx_document_discriminator ON public.document USING btree (discrimi
 
 
 --
--- TOC entry 3038 (class 1259 OID 78216)
+-- TOC entry 3105 (class 1259 OID 78216)
 -- Name: unq_bank_bik; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4932,7 +6004,7 @@ CREATE UNIQUE INDEX unq_bank_bik ON public.bank USING btree (bik) WHERE (bik > (
 
 
 --
--- TOC entry 3033 (class 1259 OID 78168)
+-- TOC entry 3100 (class 1259 OID 78168)
 -- Name: unq_contractor_inn; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4940,7 +6012,7 @@ CREATE UNIQUE INDEX unq_contractor_inn ON public.contractor USING btree (inn) WH
 
 
 --
--- TOC entry 3209 (class 2620 OID 78311)
+-- TOC entry 3318 (class 2620 OID 78311)
 -- Name: account account_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4948,7 +6020,7 @@ CREATE CONSTRAINT TRIGGER account_aiu AFTER INSERT OR UPDATE ON public.account N
 
 
 --
--- TOC entry 3207 (class 2620 OID 78219)
+-- TOC entry 3316 (class 2620 OID 78219)
 -- Name: bank bank_biu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4956,7 +6028,7 @@ CREATE CONSTRAINT TRIGGER bank_biu AFTER INSERT OR UPDATE ON public.bank NOT DEF
 
 
 --
--- TOC entry 3206 (class 2620 OID 78167)
+-- TOC entry 3315 (class 2620 OID 78167)
 -- Name: contractor contractor_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4964,7 +6036,7 @@ CREATE CONSTRAINT TRIGGER contractor_aiu AFTER INSERT OR UPDATE ON public.contra
 
 
 --
--- TOC entry 3205 (class 2620 OID 78159)
+-- TOC entry 3314 (class 2620 OID 78159)
 -- Name: contractor contractor_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4974,7 +6046,7 @@ ALTER TABLE public.contractor DISABLE TRIGGER contractor_bi;
 
 
 --
--- TOC entry 3215 (class 2620 OID 103153)
+-- TOC entry 3324 (class 2620 OID 103153)
 -- Name: deduction deduction_au; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4982,7 +6054,7 @@ CREATE TRIGGER deduction_au AFTER UPDATE ON public.deduction FOR EACH ROW EXECUT
 
 
 --
--- TOC entry 3201 (class 2620 OID 78051)
+-- TOC entry 3310 (class 2620 OID 78051)
 -- Name: directory directory_ad; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4990,7 +6062,7 @@ CREATE CONSTRAINT TRIGGER directory_ad AFTER DELETE ON public.directory NOT DEFE
 
 
 --
--- TOC entry 3203 (class 2620 OID 78078)
+-- TOC entry 3312 (class 2620 OID 78078)
 -- Name: directory directory_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4998,7 +6070,7 @@ CREATE CONSTRAINT TRIGGER directory_aiu AFTER INSERT OR UPDATE ON public.directo
 
 
 --
--- TOC entry 3200 (class 2620 OID 77988)
+-- TOC entry 3309 (class 2620 OID 77988)
 -- Name: directory directory_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5006,7 +6078,7 @@ CREATE TRIGGER directory_bi BEFORE INSERT ON public.directory FOR EACH ROW EXECU
 
 
 --
--- TOC entry 3202 (class 2620 OID 78096)
+-- TOC entry 3311 (class 2620 OID 78096)
 -- Name: directory directory_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5014,7 +6086,7 @@ CREATE TRIGGER directory_bu BEFORE UPDATE ON public.directory FOR EACH ROW EXECU
 
 
 --
--- TOC entry 3214 (class 2620 OID 103083)
+-- TOC entry 3323 (class 2620 OID 103083)
 -- Name: document document_ad; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5022,7 +6094,7 @@ CREATE CONSTRAINT TRIGGER document_ad AFTER DELETE ON public.document NOT DEFERR
 
 
 --
--- TOC entry 3213 (class 2620 OID 103081)
+-- TOC entry 3322 (class 2620 OID 103081)
 -- Name: document document_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5030,7 +6102,7 @@ CREATE CONSTRAINT TRIGGER document_aiu AFTER INSERT OR UPDATE ON public.document
 
 
 --
--- TOC entry 3211 (class 2620 OID 103076)
+-- TOC entry 3320 (class 2620 OID 103076)
 -- Name: document document_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5038,7 +6110,7 @@ CREATE TRIGGER document_bi BEFORE INSERT ON public.document FOR EACH ROW EXECUTE
 
 
 --
--- TOC entry 3212 (class 2620 OID 103079)
+-- TOC entry 3321 (class 2620 OID 103079)
 -- Name: document document_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5046,7 +6118,7 @@ CREATE TRIGGER document_bu BEFORE UPDATE ON public.document FOR EACH ROW EXECUTE
 
 
 --
--- TOC entry 3208 (class 2620 OID 78271)
+-- TOC entry 3317 (class 2620 OID 78271)
 -- Name: goods goods_au; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5054,7 +6126,7 @@ CREATE TRIGGER goods_au AFTER UPDATE ON public.goods FOR EACH ROW EXECUTE PROCED
 
 
 --
--- TOC entry 3204 (class 2620 OID 78046)
+-- TOC entry 3313 (class 2620 OID 78046)
 -- Name: history history_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5062,7 +6134,15 @@ CREATE TRIGGER history_bi BEFORE INSERT ON public.history FOR EACH ROW EXECUTE P
 
 
 --
--- TOC entry 3210 (class 2620 OID 102899)
+-- TOC entry 3308 (class 2620 OID 144652)
+-- Name: kind kind_aiu; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE CONSTRAINT TRIGGER kind_aiu AFTER INSERT OR UPDATE ON public.kind NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE PROCEDURE public.check_kind_schema();
+
+
+--
+-- TOC entry 3319 (class 2620 OID 102899)
 -- Name: operation operation_au; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5070,7 +6150,7 @@ CREATE TRIGGER operation_au AFTER UPDATE ON public.operation FOR EACH ROW EXECUT
 
 
 --
--- TOC entry 3217 (class 2620 OID 127943)
+-- TOC entry 3326 (class 2620 OID 127943)
 -- Name: operation_execute operation_execute_biu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5078,7 +6158,7 @@ CREATE TRIGGER operation_execute_biu BEFORE INSERT OR UPDATE ON public.operation
 
 
 --
--- TOC entry 3216 (class 2620 OID 103264)
+-- TOC entry 3325 (class 2620 OID 103264)
 -- Name: organization organization_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5086,7 +6166,7 @@ CREATE TRIGGER organization_aiu AFTER INSERT OR UPDATE ON public.organization FO
 
 
 --
--- TOC entry 3199 (class 2620 OID 78296)
+-- TOC entry 3307 (class 2620 OID 78296)
 -- Name: transition transition_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -5094,7 +6174,7 @@ CREATE CONSTRAINT TRIGGER transition_aiu AFTER INSERT OR UPDATE ON public.transi
 
 
 --
--- TOC entry 3142 (class 2606 OID 78304)
+-- TOC entry 3233 (class 2606 OID 78304)
 -- Name: account fk_account_bank; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5103,7 +6183,7 @@ ALTER TABLE ONLY public.account
 
 
 --
--- TOC entry 3143 (class 2606 OID 78317)
+-- TOC entry 3234 (class 2606 OID 78317)
 -- Name: account fk_account_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5112,7 +6192,52 @@ ALTER TABLE ONLY public.account
 
 
 --
--- TOC entry 3137 (class 2606 OID 78211)
+-- TOC entry 3300 (class 2606 OID 144697)
+-- Name: accounting_detail fk_accounting_detail_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_detail
+    ADD CONSTRAINT fk_accounting_detail_goods FOREIGN KEY (goods_id) REFERENCES public.goods(id);
+
+
+--
+-- TOC entry 3299 (class 2606 OID 144702)
+-- Name: accounting_detail fk_accounting_detail_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_detail
+    ADD CONSTRAINT fk_accounting_detail_owner FOREIGN KEY (owner_id) REFERENCES public.accounting_document(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3288 (class 2606 OID 144633)
+-- Name: accounting_document fk_accounting_document_type; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_document
+    ADD CONSTRAINT fk_accounting_document_type FOREIGN KEY (doc_type_id) REFERENCES public.accounting_type_doc(id);
+
+
+--
+-- TOC entry 3287 (class 2606 OID 144551)
+-- Name: accounting_document fk_accounting_docyments_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_document
+    ADD CONSTRAINT fk_accounting_docyments_id FOREIGN KEY (id) REFERENCES public.document(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3294 (class 2606 OID 144618)
+-- Name: accounting_type_doc fk_accounting_type_doc_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.accounting_type_doc
+    ADD CONSTRAINT fk_accounting_type_doc_id FOREIGN KEY (id) REFERENCES public.directory(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3228 (class 2606 OID 78211)
 -- Name: bank fk_bank_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5121,7 +6246,7 @@ ALTER TABLE ONLY public.bank
 
 
 --
--- TOC entry 3147 (class 2606 OID 102935)
+-- TOC entry 3238 (class 2606 OID 102935)
 -- Name: calculation fk_calculation_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5130,7 +6255,7 @@ ALTER TABLE ONLY public.calculation
 
 
 --
--- TOC entry 3125 (class 2606 OID 78061)
+-- TOC entry 3216 (class 2606 OID 78061)
 -- Name: changing_status fk_changing_status_from; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5139,7 +6264,7 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3128 (class 2606 OID 78169)
+-- TOC entry 3219 (class 2606 OID 78169)
 -- Name: changing_status fk_changing_status_picture; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5148,7 +6273,7 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3126 (class 2606 OID 78066)
+-- TOC entry 3217 (class 2606 OID 78066)
 -- Name: changing_status fk_changing_status_to; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5157,7 +6282,7 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3127 (class 2606 OID 78071)
+-- TOC entry 3218 (class 2606 OID 78071)
 -- Name: changing_status fk_changing_status_transition; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5166,7 +6291,7 @@ ALTER TABLE ONLY public.changing_status
 
 
 --
--- TOC entry 3132 (class 2606 OID 78132)
+-- TOC entry 3223 (class 2606 OID 78132)
 -- Name: command fk_command_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5175,7 +6300,7 @@ ALTER TABLE ONLY public.command
 
 
 --
--- TOC entry 3153 (class 2606 OID 102983)
+-- TOC entry 3244 (class 2606 OID 102983)
 -- Name: condition fk_condition_changing_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5184,7 +6309,7 @@ ALTER TABLE ONLY public.condition
 
 
 --
--- TOC entry 3152 (class 2606 OID 102978)
+-- TOC entry 3243 (class 2606 OID 102978)
 -- Name: condition fk_condition_kind; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5193,7 +6318,7 @@ ALTER TABLE ONLY public.condition
 
 
 --
--- TOC entry 3134 (class 2606 OID 78312)
+-- TOC entry 3225 (class 2606 OID 78312)
 -- Name: contractor fk_contractor_account; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5202,7 +6327,7 @@ ALTER TABLE ONLY public.contractor
 
 
 --
--- TOC entry 3133 (class 2606 OID 78148)
+-- TOC entry 3224 (class 2606 OID 78148)
 -- Name: contractor fk_contractor_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5211,7 +6336,7 @@ ALTER TABLE ONLY public.contractor
 
 
 --
--- TOC entry 3135 (class 2606 OID 103254)
+-- TOC entry 3226 (class 2606 OID 103254)
 -- Name: contractor fk_contractor_okopf; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5220,7 +6345,7 @@ ALTER TABLE ONLY public.contractor
 
 
 --
--- TOC entry 3165 (class 2606 OID 103135)
+-- TOC entry 3256 (class 2606 OID 103135)
 -- Name: deduction fk_deduction_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5229,7 +6354,7 @@ ALTER TABLE ONLY public.deduction
 
 
 --
--- TOC entry 3120 (class 2606 OID 78040)
+-- TOC entry 3211 (class 2606 OID 78040)
 -- Name: directory fk_directory_history; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5238,7 +6363,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3115 (class 2606 OID 77953)
+-- TOC entry 3206 (class 2606 OID 77953)
 -- Name: directory fk_directory_kind; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5247,7 +6372,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3116 (class 2606 OID 77958)
+-- TOC entry 3207 (class 2606 OID 77958)
 -- Name: directory fk_directory_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5256,7 +6381,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3117 (class 2606 OID 77963)
+-- TOC entry 3208 (class 2606 OID 77963)
 -- Name: directory fk_directory_parent; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5265,7 +6390,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3119 (class 2606 OID 78007)
+-- TOC entry 3210 (class 2606 OID 78007)
 -- Name: directory fk_directory_picture; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5274,7 +6399,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3118 (class 2606 OID 77968)
+-- TOC entry 3209 (class 2606 OID 77968)
 -- Name: directory fk_directory_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5283,7 +6408,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3112 (class 2606 OID 77938)
+-- TOC entry 3203 (class 2606 OID 77938)
 -- Name: directory fk_directory_user_created; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5292,7 +6417,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3114 (class 2606 OID 77948)
+-- TOC entry 3205 (class 2606 OID 77948)
 -- Name: directory fk_directory_user_locked; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5301,7 +6426,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3113 (class 2606 OID 77943)
+-- TOC entry 3204 (class 2606 OID 77943)
 -- Name: directory fk_directory_user_updated; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5310,7 +6435,7 @@ ALTER TABLE ONLY public.directory
 
 
 --
--- TOC entry 3155 (class 2606 OID 103025)
+-- TOC entry 3246 (class 2606 OID 103025)
 -- Name: document fk_document_history; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5319,7 +6444,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3156 (class 2606 OID 103030)
+-- TOC entry 3247 (class 2606 OID 103030)
 -- Name: document fk_document_kind; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5328,7 +6453,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3162 (class 2606 OID 103265)
+-- TOC entry 3253 (class 2606 OID 103265)
 -- Name: document fk_document_organization; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5337,7 +6462,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3157 (class 2606 OID 103049)
+-- TOC entry 3248 (class 2606 OID 103049)
 -- Name: document fk_document_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5346,7 +6471,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3197 (class 2606 OID 136104)
+-- TOC entry 3284 (class 2606 OID 136104)
 -- Name: document_refs fk_document_refs_dir; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5355,7 +6480,7 @@ ALTER TABLE ONLY public.document_refs
 
 
 --
--- TOC entry 3198 (class 2606 OID 136109)
+-- TOC entry 3285 (class 2606 OID 136109)
 -- Name: document_refs fk_document_refs_doc; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5364,7 +6489,7 @@ ALTER TABLE ONLY public.document_refs
 
 
 --
--- TOC entry 3158 (class 2606 OID 103054)
+-- TOC entry 3249 (class 2606 OID 103054)
 -- Name: document fk_document_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5373,7 +6498,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3159 (class 2606 OID 103059)
+-- TOC entry 3250 (class 2606 OID 103059)
 -- Name: document fk_document_user_created; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5382,7 +6507,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3160 (class 2606 OID 103064)
+-- TOC entry 3251 (class 2606 OID 103064)
 -- Name: document fk_document_user_locked; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5391,7 +6516,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3161 (class 2606 OID 103069)
+-- TOC entry 3252 (class 2606 OID 103069)
 -- Name: document fk_document_user_updated; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5400,7 +6525,7 @@ ALTER TABLE ONLY public.document
 
 
 --
--- TOC entry 3175 (class 2606 OID 103341)
+-- TOC entry 3264 (class 2606 OID 103341)
 -- Name: employee fk_employee_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5409,7 +6534,7 @@ ALTER TABLE ONLY public.employee
 
 
 --
--- TOC entry 3176 (class 2606 OID 103346)
+-- TOC entry 3265 (class 2606 OID 103346)
 -- Name: employee fk_employee_person; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5418,7 +6543,7 @@ ALTER TABLE ONLY public.employee
 
 
 --
--- TOC entry 3177 (class 2606 OID 103371)
+-- TOC entry 3266 (class 2606 OID 103371)
 -- Name: employee fk_employee_post; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5427,7 +6552,7 @@ ALTER TABLE ONLY public.employee
 
 
 --
--- TOC entry 3179 (class 2606 OID 103393)
+-- TOC entry 3268 (class 2606 OID 103393)
 -- Name: form_preview fk_form_preview_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5436,7 +6561,7 @@ ALTER TABLE ONLY public.form_preview
 
 
 --
--- TOC entry 3180 (class 2606 OID 103398)
+-- TOC entry 3269 (class 2606 OID 103398)
 -- Name: form_preview fk_form_preview_kind; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5445,7 +6570,7 @@ ALTER TABLE ONLY public.form_preview
 
 
 --
--- TOC entry 3138 (class 2606 OID 78227)
+-- TOC entry 3229 (class 2606 OID 78227)
 -- Name: goods fk_goods_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5454,7 +6579,25 @@ ALTER TABLE ONLY public.goods
 
 
 --
--- TOC entry 3139 (class 2606 OID 78232)
+-- TOC entry 3301 (class 2606 OID 144738)
+-- Name: goods_in_operation fk_goods_in_operation_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_in_operation
+    ADD CONSTRAINT fk_goods_in_operation_goods FOREIGN KEY (goods_id) REFERENCES public.goods(id);
+
+
+--
+-- TOC entry 3302 (class 2606 OID 144733)
+-- Name: goods_in_operation fk_goods_in_operation_operation; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.goods_in_operation
+    ADD CONSTRAINT fk_goods_in_operation_operation FOREIGN KEY (item_operation_id) REFERENCES public.item_operation(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3230 (class 2606 OID 78232)
 -- Name: goods fk_goods_measurement; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5463,7 +6606,7 @@ ALTER TABLE ONLY public.goods
 
 
 --
--- TOC entry 3123 (class 2606 OID 78030)
+-- TOC entry 3214 (class 2606 OID 78030)
 -- Name: history fk_history_status_from; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5472,7 +6615,7 @@ ALTER TABLE ONLY public.history
 
 
 --
--- TOC entry 3124 (class 2606 OID 78035)
+-- TOC entry 3215 (class 2606 OID 78035)
 -- Name: history fk_history_status_to; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5481,7 +6624,7 @@ ALTER TABLE ONLY public.history
 
 
 --
--- TOC entry 3122 (class 2606 OID 78025)
+-- TOC entry 3213 (class 2606 OID 78025)
 -- Name: history fk_history_user; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5490,7 +6633,43 @@ ALTER TABLE ONLY public.history
 
 
 --
--- TOC entry 3168 (class 2606 OID 103164)
+-- TOC entry 3305 (class 2606 OID 144795)
+-- Name: inventory_detail fk_inventory_detail_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory_detail
+    ADD CONSTRAINT fk_inventory_detail_goods FOREIGN KEY (goods_id) REFERENCES public.goods(id);
+
+
+--
+-- TOC entry 3306 (class 2606 OID 144790)
+-- Name: inventory_detail fk_inventory_detail_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory_detail
+    ADD CONSTRAINT fk_inventory_detail_owner FOREIGN KEY (owner_id) REFERENCES public.inventory(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3303 (class 2606 OID 144777)
+-- Name: inventory fk_inventory_employee; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory
+    ADD CONSTRAINT fk_inventory_employee FOREIGN KEY (employee_id) REFERENCES public.employee(id);
+
+
+--
+-- TOC entry 3304 (class 2606 OID 144772)
+-- Name: inventory fk_inventory_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.inventory
+    ADD CONSTRAINT fk_inventory_id FOREIGN KEY (id) REFERENCES public.document(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3259 (class 2606 OID 103164)
 -- Name: item_deduction fk_item_deduction_deduction; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5499,7 +6678,7 @@ ALTER TABLE ONLY public.item_deduction
 
 
 --
--- TOC entry 3167 (class 2606 OID 103159)
+-- TOC entry 3258 (class 2606 OID 103159)
 -- Name: item_deduction fk_item_deduction_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5508,7 +6687,7 @@ ALTER TABLE ONLY public.item_deduction
 
 
 --
--- TOC entry 3149 (class 2606 OID 102950)
+-- TOC entry 3240 (class 2606 OID 102950)
 -- Name: item_goods fk_item_goods_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5517,7 +6696,7 @@ ALTER TABLE ONLY public.item_goods
 
 
 --
--- TOC entry 3148 (class 2606 OID 102945)
+-- TOC entry 3239 (class 2606 OID 102945)
 -- Name: item_goods fk_item_goods_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5526,7 +6705,7 @@ ALTER TABLE ONLY public.item_goods
 
 
 --
--- TOC entry 3150 (class 2606 OID 102960)
+-- TOC entry 3241 (class 2606 OID 102960)
 -- Name: item_operation fk_item_operation_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5535,7 +6714,7 @@ ALTER TABLE ONLY public.item_operation
 
 
 --
--- TOC entry 3151 (class 2606 OID 102965)
+-- TOC entry 3242 (class 2606 OID 102965)
 -- Name: item_operation fk_item_operation_operation; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5544,7 +6723,7 @@ ALTER TABLE ONLY public.item_operation
 
 
 --
--- TOC entry 3141 (class 2606 OID 78254)
+-- TOC entry 3232 (class 2606 OID 78254)
 -- Name: kind_child fk_kind_child_child; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5553,7 +6732,7 @@ ALTER TABLE ONLY public.kind_child
 
 
 --
--- TOC entry 3140 (class 2606 OID 78249)
+-- TOC entry 3231 (class 2606 OID 78249)
 -- Name: kind_child fk_kind_child_master; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5562,7 +6741,7 @@ ALTER TABLE ONLY public.kind_child
 
 
 --
--- TOC entry 3110 (class 2606 OID 77887)
+-- TOC entry 3201 (class 2606 OID 77887)
 -- Name: kind fk_kind_enum; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5571,7 +6750,7 @@ ALTER TABLE ONLY public.kind
 
 
 --
--- TOC entry 3111 (class 2606 OID 78002)
+-- TOC entry 3202 (class 2606 OID 78002)
 -- Name: kind fk_kind_picture; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5580,7 +6759,7 @@ ALTER TABLE ONLY public.kind
 
 
 --
--- TOC entry 3109 (class 2606 OID 77882)
+-- TOC entry 3200 (class 2606 OID 77882)
 -- Name: kind fk_kind_transition; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5589,7 +6768,16 @@ ALTER TABLE ONLY public.kind
 
 
 --
--- TOC entry 3136 (class 2606 OID 78200)
+-- TOC entry 3286 (class 2606 OID 144375)
+-- Name: material fk_material_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.material
+    ADD CONSTRAINT fk_material_goods FOREIGN KEY (goods_id) REFERENCES public.goods(id) ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3227 (class 2606 OID 78200)
 -- Name: measurement fk_measurement_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5598,7 +6786,43 @@ ALTER TABLE ONLY public.measurement
 
 
 --
--- TOC entry 3154 (class 2606 OID 103008)
+-- TOC entry 3292 (class 2606 OID 144608)
+-- Name: movement_goods fk_movement_goods_accounting_doc; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.movement_goods
+    ADD CONSTRAINT fk_movement_goods_accounting_doc FOREIGN KEY (accounting_doc_id) REFERENCES public.accounting_document(id);
+
+
+--
+-- TOC entry 3293 (class 2606 OID 144638)
+-- Name: movement_goods fk_movement_goods_contractor; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.movement_goods
+    ADD CONSTRAINT fk_movement_goods_contractor FOREIGN KEY (contractor_id) REFERENCES public.contractor(id);
+
+
+--
+-- TOC entry 3290 (class 2606 OID 144588)
+-- Name: movement_goods fk_movement_goods_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.movement_goods
+    ADD CONSTRAINT fk_movement_goods_id FOREIGN KEY (id) REFERENCES public.directory(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3291 (class 2606 OID 144598)
+-- Name: movement_goods fk_movement_goods_source_doc; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.movement_goods
+    ADD CONSTRAINT fk_movement_goods_source_doc FOREIGN KEY (source_doc_id) REFERENCES public.document(id);
+
+
+--
+-- TOC entry 3245 (class 2606 OID 103008)
 -- Name: okopf fk_okopf_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5607,7 +6831,7 @@ ALTER TABLE ONLY public.okopf
 
 
 --
--- TOC entry 3178 (class 2606 OID 103356)
+-- TOC entry 3267 (class 2606 OID 103356)
 -- Name: okpdtr fk_okpdtr_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5616,7 +6840,7 @@ ALTER TABLE ONLY public.okpdtr
 
 
 --
--- TOC entry 3190 (class 2606 OID 119733)
+-- TOC entry 3277 (class 2606 OID 119733)
 -- Name: operation_execute fk_operation_execute_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5625,7 +6849,7 @@ ALTER TABLE ONLY public.operation_execute
 
 
 --
--- TOC entry 3191 (class 2606 OID 119738)
+-- TOC entry 3278 (class 2606 OID 119738)
 -- Name: operation_execute fk_operation_execute_operation; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5634,7 +6858,7 @@ ALTER TABLE ONLY public.operation_execute
 
 
 --
--- TOC entry 3196 (class 2606 OID 127918)
+-- TOC entry 3283 (class 2606 OID 127918)
 -- Name: operation_executor fk_operation_executor_employee; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5643,7 +6867,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3194 (class 2606 OID 127903)
+-- TOC entry 3281 (class 2606 OID 127903)
 -- Name: operation_executor fk_operation_executor_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5652,7 +6876,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3192 (class 2606 OID 127885)
+-- TOC entry 3279 (class 2606 OID 127885)
 -- Name: operation_executor fk_operation_executor_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5661,7 +6885,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3195 (class 2606 OID 127908)
+-- TOC entry 3282 (class 2606 OID 127908)
 -- Name: operation_executor fk_operation_executor_operation; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5670,7 +6894,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3193 (class 2606 OID 127898)
+-- TOC entry 3280 (class 2606 OID 127898)
 -- Name: operation_executor fk_operation_executor_order; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5679,7 +6903,7 @@ ALTER TABLE ONLY public.operation_executor
 
 
 --
--- TOC entry 3145 (class 2606 OID 86532)
+-- TOC entry 3236 (class 2606 OID 86532)
 -- Name: operation fk_operation_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5688,7 +6912,7 @@ ALTER TABLE ONLY public.operation
 
 
 --
--- TOC entry 3146 (class 2606 OID 86537)
+-- TOC entry 3237 (class 2606 OID 86537)
 -- Name: operation fk_operation_type; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5697,7 +6921,7 @@ ALTER TABLE ONLY public.operation
 
 
 --
--- TOC entry 3144 (class 2606 OID 86522)
+-- TOC entry 3235 (class 2606 OID 86522)
 -- Name: operation_type fk_operation_type_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5706,7 +6930,7 @@ ALTER TABLE ONLY public.operation_type
 
 
 --
--- TOC entry 3187 (class 2606 OID 119743)
+-- TOC entry 3274 (class 2606 OID 119743)
 -- Name: order_complete fk_order_complete_calculation; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5715,7 +6939,7 @@ ALTER TABLE ONLY public.order_complete
 
 
 --
--- TOC entry 3186 (class 2606 OID 103512)
+-- TOC entry 3273 (class 2606 OID 103512)
 -- Name: order_complete fk_order_complete_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5724,7 +6948,7 @@ ALTER TABLE ONLY public.order_complete
 
 
 --
--- TOC entry 3185 (class 2606 OID 103507)
+-- TOC entry 3272 (class 2606 OID 103507)
 -- Name: order_complete fk_order_complete_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5733,7 +6957,7 @@ ALTER TABLE ONLY public.order_complete
 
 
 --
--- TOC entry 3184 (class 2606 OID 103475)
+-- TOC entry 3297 (class 2606 OID 144681)
 -- Name: order_detail fk_order_detail_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5742,7 +6966,7 @@ ALTER TABLE ONLY public.order_detail
 
 
 --
--- TOC entry 3183 (class 2606 OID 103470)
+-- TOC entry 3298 (class 2606 OID 144686)
 -- Name: order_detail fk_order_detail_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5751,7 +6975,7 @@ ALTER TABLE ONLY public.order_detail
 
 
 --
--- TOC entry 3182 (class 2606 OID 103457)
+-- TOC entry 3271 (class 2606 OID 103457)
 -- Name: order_production fk_order_production_contractor; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5760,7 +6984,7 @@ ALTER TABLE ONLY public.order_production
 
 
 --
--- TOC entry 3181 (class 2606 OID 103452)
+-- TOC entry 3270 (class 2606 OID 103452)
 -- Name: order_production fk_order_production_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5769,7 +6993,7 @@ ALTER TABLE ONLY public.order_production
 
 
 --
--- TOC entry 3188 (class 2606 OID 119700)
+-- TOC entry 3275 (class 2606 OID 119700)
 -- Name: order_shipped fk_order_shipped_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5778,7 +7002,7 @@ ALTER TABLE ONLY public.order_shipped
 
 
 --
--- TOC entry 3189 (class 2606 OID 119707)
+-- TOC entry 3276 (class 2606 OID 119707)
 -- Name: order_shipped fk_order_shipped_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5787,7 +7011,7 @@ ALTER TABLE ONLY public.order_shipped
 
 
 --
--- TOC entry 3171 (class 2606 OID 103259)
+-- TOC entry 3262 (class 2606 OID 103259)
 -- Name: organization fk_organization_account; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5796,7 +7020,7 @@ ALTER TABLE ONLY public.organization
 
 
 --
--- TOC entry 3169 (class 2606 OID 103244)
+-- TOC entry 3260 (class 2606 OID 103244)
 -- Name: organization fk_organization_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5805,7 +7029,7 @@ ALTER TABLE ONLY public.organization
 
 
 --
--- TOC entry 3170 (class 2606 OID 103249)
+-- TOC entry 3261 (class 2606 OID 103249)
 -- Name: organization fk_organization_okopf; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5814,7 +7038,16 @@ ALTER TABLE ONLY public.organization
 
 
 --
--- TOC entry 3166 (class 2606 OID 103147)
+-- TOC entry 3289 (class 2606 OID 144561)
+-- Name: payment_order fk_payment_order_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.payment_order
+    ADD CONSTRAINT fk_payment_order_id FOREIGN KEY (id) REFERENCES public.document(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3257 (class 2606 OID 103147)
 -- Name: percentage fk_percentage_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5823,7 +7056,7 @@ ALTER TABLE ONLY public.percentage
 
 
 --
--- TOC entry 3174 (class 2606 OID 103331)
+-- TOC entry 3263 (class 2606 OID 103331)
 -- Name: person fk_person_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5832,7 +7065,7 @@ ALTER TABLE ONLY public.person
 
 
 --
--- TOC entry 3121 (class 2606 OID 77981)
+-- TOC entry 3212 (class 2606 OID 77981)
 -- Name: picture fk_picture_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5841,7 +7074,7 @@ ALTER TABLE ONLY public.picture
 
 
 --
--- TOC entry 3164 (class 2606 OID 103104)
+-- TOC entry 3255 (class 2606 OID 103104)
 -- Name: price fk_price_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5850,7 +7083,7 @@ ALTER TABLE ONLY public.price
 
 
 --
--- TOC entry 3173 (class 2606 OID 103283)
+-- TOC entry 3295 (class 2606 OID 144665)
 -- Name: request_detail fk_request_detail_goods; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5859,7 +7092,7 @@ ALTER TABLE ONLY public.request_detail
 
 
 --
--- TOC entry 3172 (class 2606 OID 103278)
+-- TOC entry 3296 (class 2606 OID 144670)
 -- Name: request_detail fk_request_detail_owner; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5868,7 +7101,7 @@ ALTER TABLE ONLY public.request_detail
 
 
 --
--- TOC entry 3163 (class 2606 OID 103094)
+-- TOC entry 3254 (class 2606 OID 103094)
 -- Name: request fk_request_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5877,7 +7110,7 @@ ALTER TABLE ONLY public.request
 
 
 --
--- TOC entry 3130 (class 2606 OID 78122)
+-- TOC entry 3221 (class 2606 OID 78122)
 -- Name: sidebar fk_sidebar_command; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5886,7 +7119,7 @@ ALTER TABLE ONLY public.sidebar
 
 
 --
--- TOC entry 3129 (class 2606 OID 78090)
+-- TOC entry 3220 (class 2606 OID 78090)
 -- Name: sidebar fk_sidebar_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5895,7 +7128,7 @@ ALTER TABLE ONLY public.sidebar
 
 
 --
--- TOC entry 3131 (class 2606 OID 78127)
+-- TOC entry 3222 (class 2606 OID 78127)
 -- Name: sidebar fk_sidebar_kind; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5904,7 +7137,7 @@ ALTER TABLE ONLY public.sidebar
 
 
 --
--- TOC entry 3105 (class 2606 OID 77997)
+-- TOC entry 3196 (class 2606 OID 77997)
 -- Name: status fk_status_picture; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5913,7 +7146,7 @@ ALTER TABLE ONLY public.status
 
 
 --
--- TOC entry 3107 (class 2606 OID 103497)
+-- TOC entry 3198 (class 2606 OID 103497)
 -- Name: transition fk_transition_canceled_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5922,7 +7155,7 @@ ALTER TABLE ONLY public.transition
 
 
 --
--- TOC entry 3108 (class 2606 OID 103502)
+-- TOC entry 3199 (class 2606 OID 103502)
 -- Name: transition fk_transition_finishing_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5931,7 +7164,7 @@ ALTER TABLE ONLY public.transition
 
 
 --
--- TOC entry 3106 (class 2606 OID 78284)
+-- TOC entry 3197 (class 2606 OID 78284)
 -- Name: transition fk_transition_starting_status; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5940,7 +7173,7 @@ ALTER TABLE ONLY public.transition
 
 
 --
--- TOC entry 3104 (class 2606 OID 77842)
+-- TOC entry 3195 (class 2606 OID 77842)
 -- Name: user_alias fk_user_alias_parent; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5949,7 +7182,7 @@ ALTER TABLE ONLY public.user_alias
 
 
 --
--- TOC entry 3340 (class 0 OID 77910)
+-- TOC entry 3449 (class 0 OID 77910)
 -- Dependencies: 203
 -- Name: directory; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
@@ -5957,7 +7190,7 @@ ALTER TABLE ONLY public.user_alias
 ALTER TABLE public.directory ENABLE ROW LEVEL SECURITY;
 
 --
--- TOC entry 3341 (class 3256 OID 136082)
+-- TOC entry 3450 (class 3256 OID 136082)
 -- Name: directory directory_admins; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -5965,7 +7198,7 @@ CREATE POLICY directory_admins ON public.directory TO admins USING (true) WITH C
 
 
 --
--- TOC entry 3342 (class 3256 OID 136083)
+-- TOC entry 3451 (class 3256 OID 136083)
 -- Name: directory directory_users; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -5973,7 +7206,7 @@ CREATE POLICY directory_users ON public.directory TO users USING (public.check_a
 
 
 --
--- TOC entry 3353 (class 0 OID 0)
+-- TOC entry 3463 (class 0 OID 0)
 -- Dependencies: 217
 -- Name: TABLE account; Type: ACL; Schema: public; Owner: postgres
 --
@@ -5983,7 +7216,47 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account TO users;
 
 
 --
--- TOC entry 3355 (class 0 OID 0)
+-- TOC entry 3469 (class 0 OID 0)
+-- Dependencies: 254
+-- Name: TABLE goods_detail; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.goods_detail TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.goods_detail TO users;
+
+
+--
+-- TOC entry 3470 (class 0 OID 0)
+-- Dependencies: 257
+-- Name: TABLE accounting_detail; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.accounting_detail TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.accounting_detail TO users;
+
+
+--
+-- TOC entry 3471 (class 0 OID 0)
+-- Dependencies: 249
+-- Name: TABLE accounting_document; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.accounting_document TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.accounting_document TO users;
+
+
+--
+-- TOC entry 3472 (class 0 OID 0)
+-- Dependencies: 252
+-- Name: TABLE accounting_type_doc; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.accounting_type_doc TO admins;
+GRANT SELECT ON TABLE public.accounting_type_doc TO users;
+
+
+--
+-- TOC entry 3474 (class 0 OID 0)
 -- Dependencies: 213
 -- Name: TABLE bank; Type: ACL; Schema: public; Owner: postgres
 --
@@ -5993,7 +7266,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bank TO users;
 
 
 --
--- TOC entry 3363 (class 0 OID 0)
+-- TOC entry 3482 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: TABLE calculation; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6003,7 +7276,17 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.calculation TO users;
 
 
 --
--- TOC entry 3364 (class 0 OID 0)
+-- TOC entry 3483 (class 0 OID 0)
+-- Dependencies: 245
+-- Name: TABLE calendar; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.calendar TO admins;
+GRANT SELECT ON TABLE public.calendar TO users;
+
+
+--
+-- TOC entry 3484 (class 0 OID 0)
 -- Dependencies: 207
 -- Name: TABLE changing_status; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6014,7 +7297,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.changing_status TO designers;
 
 
 --
--- TOC entry 3365 (class 0 OID 0)
+-- TOC entry 3485 (class 0 OID 0)
 -- Dependencies: 209
 -- Name: TABLE command; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6025,7 +7308,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.command TO designers;
 
 
 --
--- TOC entry 3368 (class 0 OID 0)
+-- TOC entry 3488 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: TABLE condition; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6036,7 +7319,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.condition TO designers;
 
 
 --
--- TOC entry 3377 (class 0 OID 0)
+-- TOC entry 3499 (class 0 OID 0)
 -- Dependencies: 210
 -- Name: TABLE contractor; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6046,7 +7329,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contractor TO users;
 
 
 --
--- TOC entry 3380 (class 0 OID 0)
+-- TOC entry 3502 (class 0 OID 0)
 -- Dependencies: 228
 -- Name: TABLE deduction; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6056,7 +7339,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.deduction TO users;
 
 
 --
--- TOC entry 3390 (class 0 OID 0)
+-- TOC entry 3512 (class 0 OID 0)
 -- Dependencies: 202
 -- Name: TABLE document_info; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6066,7 +7349,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_info TO users;
 
 
 --
--- TOC entry 3391 (class 0 OID 0)
+-- TOC entry 3513 (class 0 OID 0)
 -- Dependencies: 203
 -- Name: TABLE directory; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6076,7 +7359,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.directory TO users;
 
 
 --
--- TOC entry 3392 (class 0 OID 0)
+-- TOC entry 3514 (class 0 OID 0)
 -- Dependencies: 211
 -- Name: SEQUENCE directory_code_seq; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6086,7 +7369,7 @@ GRANT ALL ON SEQUENCE public.directory_code_seq TO users;
 
 
 --
--- TOC entry 3393 (class 0 OID 0)
+-- TOC entry 3515 (class 0 OID 0)
 -- Dependencies: 225
 -- Name: TABLE document; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6096,8 +7379,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document TO users;
 
 
 --
--- TOC entry 3394 (class 0 OID 0)
--- Dependencies: 247
+-- TOC entry 3516 (class 0 OID 0)
+-- Dependencies: 243
 -- Name: TABLE document_refs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6106,8 +7389,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_refs TO users;
 
 
 --
--- TOC entry 3396 (class 0 OID 0)
--- Dependencies: 246
+-- TOC entry 3518 (class 0 OID 0)
+-- Dependencies: 242
 -- Name: SEQUENCE document_refs_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6116,8 +7399,28 @@ GRANT ALL ON SEQUENCE public.document_refs_id_seq TO users;
 
 
 --
--- TOC entry 3398 (class 0 OID 0)
--- Dependencies: 235
+-- TOC entry 3519 (class 0 OID 0)
+-- Dependencies: 248
+-- Name: TABLE email; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.email TO admins;
+GRANT SELECT ON TABLE public.email TO users;
+
+
+--
+-- TOC entry 3521 (class 0 OID 0)
+-- Dependencies: 247
+-- Name: SEQUENCE email_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.email_id_seq TO admins;
+GRANT SELECT ON SEQUENCE public.email_id_seq TO users;
+
+
+--
+-- TOC entry 3523 (class 0 OID 0)
+-- Dependencies: 233
 -- Name: TABLE employee; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6126,8 +7429,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.employee TO users;
 
 
 --
--- TOC entry 3399 (class 0 OID 0)
--- Dependencies: 237
+-- TOC entry 3524 (class 0 OID 0)
+-- Dependencies: 235
 -- Name: TABLE form_preview; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6137,7 +7440,7 @@ GRANT SELECT ON TABLE public.form_preview TO users;
 
 
 --
--- TOC entry 3407 (class 0 OID 0)
+-- TOC entry 3532 (class 0 OID 0)
 -- Dependencies: 214
 -- Name: TABLE goods; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6147,7 +7450,37 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.goods TO users;
 
 
 --
--- TOC entry 3409 (class 0 OID 0)
+-- TOC entry 3534 (class 0 OID 0)
+-- Dependencies: 253
+-- Name: SEQUENCE goods_detail_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.goods_detail_id_seq TO admins;
+GRANT ALL ON SEQUENCE public.goods_detail_id_seq TO users;
+
+
+--
+-- TOC entry 3535 (class 0 OID 0)
+-- Dependencies: 259
+-- Name: TABLE goods_in_operation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.goods_in_operation TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.goods_in_operation TO users;
+
+
+--
+-- TOC entry 3537 (class 0 OID 0)
+-- Dependencies: 258
+-- Name: SEQUENCE goods_in_operation_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.goods_in_operation_id_seq TO admins;
+GRANT ALL ON SEQUENCE public.goods_in_operation_id_seq TO users;
+
+
+--
+-- TOC entry 3539 (class 0 OID 0)
 -- Dependencies: 206
 -- Name: TABLE history; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6157,7 +7490,7 @@ GRANT SELECT,INSERT ON TABLE public.history TO users;
 
 
 --
--- TOC entry 3411 (class 0 OID 0)
+-- TOC entry 3541 (class 0 OID 0)
 -- Dependencies: 205
 -- Name: SEQUENCE history_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6167,7 +7500,7 @@ GRANT ALL ON SEQUENCE public.history_id_seq TO users;
 
 
 --
--- TOC entry 3412 (class 0 OID 0)
+-- TOC entry 3543 (class 0 OID 0)
 -- Dependencies: 230
 -- Name: TABLE item_deduction; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6177,7 +7510,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.item_deduction TO users;
 
 
 --
--- TOC entry 3416 (class 0 OID 0)
+-- TOC entry 3548 (class 0 OID 0)
 -- Dependencies: 221
 -- Name: TABLE item_goods; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6187,7 +7520,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.item_goods TO users;
 
 
 --
--- TOC entry 3420 (class 0 OID 0)
+-- TOC entry 3552 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: TABLE item_operation; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6197,7 +7530,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.item_operation TO users;
 
 
 --
--- TOC entry 3428 (class 0 OID 0)
+-- TOC entry 3560 (class 0 OID 0)
 -- Dependencies: 201
 -- Name: TABLE kind; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6208,7 +7541,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kind TO designers;
 
 
 --
--- TOC entry 3429 (class 0 OID 0)
+-- TOC entry 3561 (class 0 OID 0)
 -- Dependencies: 216
 -- Name: TABLE kind_child; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6219,17 +7552,17 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kind_child TO designers;
 
 
 --
--- TOC entry 3431 (class 0 OID 0)
+-- TOC entry 3563 (class 0 OID 0)
 -- Dependencies: 215
 -- Name: SEQUENCE kind_child_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.kind_child_id_seq TO admins;
-GRANT ALL ON SEQUENCE public.kind_child_id_seq TO users;
+GRANT SELECT ON SEQUENCE public.kind_child_id_seq TO users;
 
 
 --
--- TOC entry 3432 (class 0 OID 0)
+-- TOC entry 3564 (class 0 OID 0)
 -- Dependencies: 200
 -- Name: TABLE kind_enum; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6240,7 +7573,17 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kind_enum TO designers;
 
 
 --
--- TOC entry 3434 (class 0 OID 0)
+-- TOC entry 3565 (class 0 OID 0)
+-- Dependencies: 246
+-- Name: TABLE material; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.material TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.material TO users;
+
+
+--
+-- TOC entry 3567 (class 0 OID 0)
 -- Dependencies: 212
 -- Name: TABLE measurement; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6250,7 +7593,17 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.measurement TO users;
 
 
 --
--- TOC entry 3436 (class 0 OID 0)
+-- TOC entry 3570 (class 0 OID 0)
+-- Dependencies: 251
+-- Name: TABLE movement_goods; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.movement_goods TO admins;
+GRANT SELECT,INSERT ON TABLE public.movement_goods TO users;
+
+
+--
+-- TOC entry 3572 (class 0 OID 0)
 -- Dependencies: 224
 -- Name: TABLE okopf; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6260,8 +7613,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.okopf TO users;
 
 
 --
--- TOC entry 3437 (class 0 OID 0)
--- Dependencies: 236
+-- TOC entry 3573 (class 0 OID 0)
+-- Dependencies: 234
 -- Name: TABLE okpdtr; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6270,7 +7623,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.okpdtr TO users;
 
 
 --
--- TOC entry 3443 (class 0 OID 0)
+-- TOC entry 3579 (class 0 OID 0)
 -- Dependencies: 219
 -- Name: TABLE operation; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6280,8 +7633,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operation TO users;
 
 
 --
--- TOC entry 3444 (class 0 OID 0)
--- Dependencies: 243
+-- TOC entry 3580 (class 0 OID 0)
+-- Dependencies: 239
 -- Name: TABLE operation_execute; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6290,8 +7643,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operation_execute TO users;
 
 
 --
--- TOC entry 3450 (class 0 OID 0)
--- Dependencies: 245
+-- TOC entry 3587 (class 0 OID 0)
+-- Dependencies: 241
 -- Name: TABLE operation_executor; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6300,7 +7653,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operation_executor TO users;
 
 
 --
--- TOC entry 3452 (class 0 OID 0)
+-- TOC entry 3589 (class 0 OID 0)
 -- Dependencies: 218
 -- Name: TABLE operation_type; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6310,8 +7663,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operation_type TO users;
 
 
 --
--- TOC entry 3453 (class 0 OID 0)
--- Dependencies: 241
+-- TOC entry 3590 (class 0 OID 0)
+-- Dependencies: 237
 -- Name: TABLE order_complete; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6320,8 +7673,8 @@ GRANT ALL ON TABLE public.order_complete TO admins;
 
 
 --
--- TOC entry 3461 (class 0 OID 0)
--- Dependencies: 240
+-- TOC entry 3598 (class 0 OID 0)
+-- Dependencies: 256
 -- Name: TABLE order_detail; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6330,18 +7683,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.order_detail TO users;
 
 
 --
--- TOC entry 3463 (class 0 OID 0)
--- Dependencies: 239
--- Name: SEQUENCE order_detail_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.order_detail_id_seq TO admins;
-GRANT ALL ON SEQUENCE public.order_detail_id_seq TO users;
-
-
---
--- TOC entry 3464 (class 0 OID 0)
--- Dependencies: 238
+-- TOC entry 3599 (class 0 OID 0)
+-- Dependencies: 236
 -- Name: TABLE order_production; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6350,8 +7693,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.order_production TO users;
 
 
 --
--- TOC entry 3470 (class 0 OID 0)
--- Dependencies: 242
+-- TOC entry 3605 (class 0 OID 0)
+-- Dependencies: 238
 -- Name: TABLE order_shipped; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6360,7 +7703,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.order_shipped TO users;
 
 
 --
--- TOC entry 3472 (class 0 OID 0)
+-- TOC entry 3607 (class 0 OID 0)
 -- Dependencies: 231
 -- Name: TABLE organization; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6370,7 +7713,17 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.organization TO users;
 
 
 --
--- TOC entry 3474 (class 0 OID 0)
+-- TOC entry 3608 (class 0 OID 0)
+-- Dependencies: 250
+-- Name: TABLE payment_order; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.payment_order TO admins;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.payment_order TO users;
+
+
+--
+-- TOC entry 3610 (class 0 OID 0)
 -- Dependencies: 229
 -- Name: TABLE percentage; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6380,8 +7733,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.percentage TO users;
 
 
 --
--- TOC entry 3480 (class 0 OID 0)
--- Dependencies: 234
+-- TOC entry 3616 (class 0 OID 0)
+-- Dependencies: 232
 -- Name: TABLE person; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6390,7 +7743,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.person TO users;
 
 
 --
--- TOC entry 3483 (class 0 OID 0)
+-- TOC entry 3619 (class 0 OID 0)
 -- Dependencies: 204
 -- Name: TABLE picture; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6401,7 +7754,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.picture TO designers;
 
 
 --
--- TOC entry 3485 (class 0 OID 0)
+-- TOC entry 3621 (class 0 OID 0)
 -- Dependencies: 227
 -- Name: TABLE price; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6411,7 +7764,7 @@ GRANT SELECT,INSERT ON TABLE public.price TO users;
 
 
 --
--- TOC entry 3494 (class 0 OID 0)
+-- TOC entry 3626 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: TABLE request; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6421,8 +7774,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.request TO users;
 
 
 --
--- TOC entry 3499 (class 0 OID 0)
--- Dependencies: 233
+-- TOC entry 3632 (class 0 OID 0)
+-- Dependencies: 255
 -- Name: TABLE request_detail; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6431,18 +7784,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.request_detail TO users;
 
 
 --
--- TOC entry 3501 (class 0 OID 0)
--- Dependencies: 232
--- Name: SEQUENCE request_detail_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.request_detail_id_seq TO admins;
-GRANT ALL ON SEQUENCE public.request_detail_id_seq TO users;
-
-
---
--- TOC entry 3502 (class 0 OID 0)
--- Dependencies: 248
+-- TOC entry 3633 (class 0 OID 0)
+-- Dependencies: 244
 -- Name: TABLE salary_view; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6451,7 +7794,7 @@ GRANT SELECT ON TABLE public.salary_view TO users;
 
 
 --
--- TOC entry 3504 (class 0 OID 0)
+-- TOC entry 3635 (class 0 OID 0)
 -- Dependencies: 208
 -- Name: TABLE sidebar; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6462,7 +7805,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sidebar TO designers;
 
 
 --
--- TOC entry 3508 (class 0 OID 0)
+-- TOC entry 3639 (class 0 OID 0)
 -- Dependencies: 198
 -- Name: TABLE status; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6473,7 +7816,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.status TO designers;
 
 
 --
--- TOC entry 3512 (class 0 OID 0)
+-- TOC entry 3643 (class 0 OID 0)
 -- Dependencies: 199
 -- Name: TABLE transition; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6484,7 +7827,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.transition TO designers;
 
 
 --
--- TOC entry 3519 (class 0 OID 0)
+-- TOC entry 3650 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: TABLE user_alias; Type: ACL; Schema: public; Owner: postgres
 --
@@ -6494,7 +7837,7 @@ GRANT SELECT ON TABLE public.user_alias TO guest;
 GRANT SELECT ON TABLE public.user_alias TO users;
 
 
--- Completed on 2019-08-24 17:55:47
+-- Completed on 2020-01-07 23:03:31
 
 --
 -- PostgreSQL database dump complete
